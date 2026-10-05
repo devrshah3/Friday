@@ -236,12 +236,15 @@ TOOL_PERMISSIONS: dict[str, ToolPermission] = {
 
 
 def get_tool_permission(tool_name: str) -> ToolPermission:
-    """Return the explicit permission for a tool, with safe inference fallback."""
+    """Return the explicit permission for a tool; unlisted tools require confirmation."""
     if tool_name in TOOL_PERMISSIONS:
         return TOOL_PERMISSIONS[tool_name]
-    if tool_name.startswith("get_") or tool_name.startswith("search_") or tool_name.startswith("read_"):
-        return _perm(Capability.READ_LOCAL)
-    return _perm(Capability.OBSERVATION, risk=RiskLevel.MEDIUM, reason="Permission inferred from tool name.")
+    return _perm(
+        Capability.OBSERVATION,
+        risk=RiskLevel.HIGH,
+        requires_confirmation=True,
+        reason="Tool has no explicit permission entry; confirmation required by default.",
+    )
 
 
 _SIDE_EFFECT_CAPABILITIES = frozenset({
@@ -268,7 +271,7 @@ def is_side_effect_free(tool_name: str) -> bool:
 
 def _permission_mode() -> str:
     mode = os.getenv("JARVIS_TOOL_PERMISSION_MODE", "enforce").lower().strip()
-    return mode if mode in {"audit", "enforce"} else "audit"
+    return mode if mode in {"audit", "enforce"} else "enforce"
 
 
 def _trust_model_confirmation() -> bool:
