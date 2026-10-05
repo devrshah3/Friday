@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ============================================================
-# JARVIS Setup Script for macOS (Apple Silicon M1 Pro)
-# Tailored to my machine: Homebrew, Python 3.11, Ollama
-# already installed. Only installs what is missing.
+# JARVIS Setup Script for macOS
+# Expects Homebrew, Python 3, and Ollama to be installed already.
+# Only installs what is missing.
 #
 # Usage: chmod +x setup.sh && ./setup.sh
 # ============================================================
@@ -11,7 +11,6 @@ set -euo pipefail
 echo ""
 echo "  ====================================="
 echo "  J.A.R.V.I.S. Setup Script"
-echo "  macOS Apple M1 Pro Edition"
 echo "  ====================================="
 echo ""
 
@@ -35,7 +34,6 @@ VENV_DIR="${SCRIPT_DIR}/.venv"
 step "Checking your system..."
 
 ok "macOS detected"
-ok "Apple Silicon (M1 Pro)"
 ok "Homebrew $(brew --version 2>/dev/null | head -1 | awk '{print $2}')"
 ok "Python $(python3 --version 2>/dev/null | awk '{print $2}')"
 ok "pip $(pip3 --version 2>/dev/null | awk '{print $2}')"
