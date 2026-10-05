@@ -6,18 +6,18 @@ from jarvis.core.confirmation import confirmed_scope
 from jarvis.core.permissions import Capability, RiskLevel, assess_tool_call, list_tool_audit, record_tool_audit
 
 
-def test_shell_tool_requires_confirmation_in_enforce_mode(monkeypatch):
+def test_system_tool_requires_confirmation_in_enforce_mode(monkeypatch):
     monkeypatch.setenv("JARVIS_TOOL_PERMISSION_MODE", "enforce")
-    decision = assess_tool_call("run_command", {"command": "ls"})
+    decision = assess_tool_call("close_application", {"app_name": "Safari"})
     assert decision.allowed is False
-    assert decision.permission.risk == RiskLevel.CRITICAL
+    assert decision.permission.risk == RiskLevel.HIGH
 
 
-def test_shell_tool_is_audited_by_default(monkeypatch):
+def test_system_tool_is_allowed_in_audit_mode(monkeypatch):
     monkeypatch.setenv("JARVIS_TOOL_PERMISSION_MODE", "audit")
-    decision = assess_tool_call("run_command", {"command": "ls"})
+    decision = assess_tool_call("close_application", {"app_name": "Safari"})
     assert decision.allowed is True
-    assert Capability.SHELL in decision.permission.capabilities
+    assert Capability.SYSTEM_CONTROL in decision.permission.capabilities
 
 
 def test_model_supplied_confirmation_is_not_trusted_in_enforce_mode(monkeypatch):

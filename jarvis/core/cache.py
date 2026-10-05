@@ -97,8 +97,6 @@ TOOL_CACHE_TTLS: dict[str, float] = {
 }
 
 UNCACHEABLE_TOOLS: set[str] = {
-    "run_command",
-    "run_terminal_command_smart",
     "send_email",
     "create_calendar_event",
     "write_file",
@@ -118,16 +116,8 @@ UNCACHEABLE_TOOLS: set[str] = {
     "browser_switch_tab",
     "browser_upload_file",
     "close_browser",
-    "chrome_navigate",
-    "chrome_click",
-    "chrome_type",
     "chrome_screenshot",
-    "chrome_execute_js",
-    "chrome_fill_form",
     "chrome_scroll",
-    "sync_browser_sessions",
-    "run_coding_agent",
-    "scaffold_project",
     "search_in_browser",
     "open_url_in_browser",
     "set_proactive_setting",

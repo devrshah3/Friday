@@ -36,14 +36,14 @@ TOOL_GROUPS: dict[str, set[str]] = {
         "list_directory", "read_file", "write_file", "search_files", "move_file",
         "copy_file", "create_directory", "get_file_info", "open_file",
     },
-    "shell": {"run_command", "run_terminal_command_smart"},
+    "shell": set(),  # run_command and run_terminal_command_smart disabled by Friday hardening
     "web": {"search_web", "search_news", "search_and_read", "fetch_page_text", "fetch_page_links"},
     "browser": {
         "browse_web", "browser_navigate", "browser_screenshot", "get_browser_state",
-        "browser_switch_tab", "browser_upload_file", "sync_browser_sessions", "close_browser",
-        "chrome_navigate", "chrome_click", "chrome_type", "chrome_read_page",
+        "browser_switch_tab", "browser_upload_file", "close_browser",
+        "chrome_read_page",
         "chrome_find_elements", "chrome_screenshot", "chrome_get_tabs",
-        "chrome_execute_js", "chrome_fill_form", "chrome_scroll", "chrome_extension_status",
+        "chrome_scroll", "chrome_extension_status",
     },
     "calendar_email": {
         "get_upcoming_events", "create_calendar_event", "get_calendar_list",
@@ -63,8 +63,7 @@ TOOL_GROUPS: dict[str, set[str]] = {
         "get_cache_stats", "clear_cache",
     },
     "development": {
-        "run_coding_agent", "run_terminal_command_smart", "scaffold_project",
-        "run_command", "list_directory", "read_file", "write_file",
+        "list_directory", "read_file", "write_file",
         "search_files", "get_file_info", "search_web", "fetch_page_text",
     },
     "screen": {"capture_screen", "read_screen_text", "analyze_screen"},

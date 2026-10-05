@@ -129,13 +129,10 @@ Write code, run commands, manage files, and handle software development tasks.
 Write clean, production-quality code with error handling and input validation.
 Run shell commands safely; always validate before destructive operations.
 Read and modify files accurately; confirm paths before writing.
-Use run_coding_agent for complex development workflows (multi-file changes, debugging sessions).
-Use scaffold_project for new project creation.
-Use run_command for simple, single shell commands.
+Shell, coding-agent and project-scaffolding tools are disabled; work with the file tools only.
 </instructions>
 
 <mistakes_to_avoid>
-Do NOT use run_coding_agent for simple shell commands like ls, cat, or grep; use run_command instead.
 Do NOT run destructive commands (rm -rf, chmod 777) without warning the user.
 Do NOT write files without reading the target first to avoid overwriting.
 Do NOT hardcode secrets or credentials in generated code.
@@ -160,13 +157,13 @@ Fall back to Playwright-based tools (browse_web, browser_navigate) only if the C
 </instructions>
 
 <tool_preference_order>
-1. chrome_navigate, chrome_click, chrome_type, chrome_read_page (fast, uses real browser)
+1. open_url_in_browser, chrome_read_page, chrome_find_elements (fast, uses real browser; read-only)
 2. browse_web, browser_navigate (Playwright fallback, separate Chromium instance)
 3. open_url_in_browser (simple URL open, no interaction needed)
 </tool_preference_order>
 
 <mistakes_to_avoid>
-Do NOT use browse_web when a simple chrome_navigate would suffice.
+Do NOT use browse_web when a simple open_url_in_browser would suffice.
 Do NOT attempt to interact with elements without first reading the page to confirm selectors.
 Do NOT fill forms without verifying the field selectors exist on the current page.
 </mistakes_to_avoid>
@@ -192,7 +189,6 @@ Manage files: listing, reading, writing, moving.
 <mistakes_to_avoid>
 Do NOT force-quit applications without confirming with the user first.
 Do NOT delete files without explicit user confirmation.
-Do NOT use run_command with shutdown, reboot, halt, or poweroff.
 Do NOT adjust system settings without reporting the change back to the user.
 </mistakes_to_avoid>
 
@@ -207,7 +203,7 @@ Manage email, calendar events, and notifications.
 </purpose>
 
 <instructions>
-For email: use Chrome/Gmail (Becs' preference). Use chrome_navigate to open Gmail, chrome_read_page to scan the inbox. Do NOT use Apple Mail tools (get_unread_count); they time out.
+For email: use Chrome/Gmail (Becs' preference). Use open_url_in_browser to open Gmail, chrome_read_page to scan the inbox. Do NOT use Apple Mail tools (get_unread_count); they time out.
 For calendar: use get_upcoming_events (AppleScript/Calendar.app). Do NOT open Google Calendar in Chrome.
 For sending email: always double-check the recipient address and email content. Never send without explicit user confirmation.
 For notifications: use send_notification for quick alerts.
@@ -273,21 +269,18 @@ _AGENT_TOOLS: dict[AgentType, list[str]] = {
         "capture_screen", "read_screen_text",
     ],
     AgentType.CODER: [
-        "run_command", "run_coding_agent", "run_terminal_command_smart",
-        "scaffold_project",
         "read_file", "write_file", "list_directory", "search_files",
         "move_file", "copy_file", "create_directory", "get_file_info",
         "open_file",
         "get_clipboard", "set_clipboard",
     ],
     AgentType.BROWSER: [
-        "chrome_navigate", "chrome_click", "chrome_type",
         "chrome_read_page", "chrome_find_elements", "chrome_screenshot",
-        "chrome_get_tabs", "chrome_execute_js", "chrome_fill_form",
+        "chrome_get_tabs",
         "chrome_scroll", "chrome_extension_status",
         "browse_web", "browser_navigate", "browser_screenshot",
         "get_browser_state", "browser_switch_tab", "browser_upload_file",
-        "sync_browser_sessions", "close_browser",
+        "close_browser",
         "open_url", "open_url_in_browser", "search_in_browser",
     ],
     AgentType.SYSTEM: [
@@ -301,7 +294,6 @@ _AGENT_TOOLS: dict[AgentType, list[str]] = {
         "move_file", "copy_file", "create_directory", "get_file_info",
         "open_file",
         "capture_screen", "read_screen_text",
-        "run_command",
     ],
     AgentType.COMMUNICATOR: [
         "get_upcoming_events", "create_calendar_event",

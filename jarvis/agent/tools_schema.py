@@ -18,13 +18,13 @@ from jarvis.tools import (
     browser_agent,
     calendar_email,
     chrome_extension,
-    coding_agent,
+    coding_agent,  # noqa: F401  (disabled by Friday hardening)
     filesystem,
     mac_control,
     notes_access,
     public_data,
     screen,
-    shell,
+    shell,  # noqa: F401  (run_command disabled by Friday hardening)
     weather,
     web_browse,
     web_search,
@@ -645,7 +645,7 @@ TOOL_SCHEMAS = [
             "via System Events. Optionally creates a new document first (Cmd+N). "
             "Use this when the user wants to put text into Sublime Text, TextEdit, "
             "Notes, VS Code, or any other text editor. Requires Accessibility permissions. "
-            "Preferred over manually chaining set_clipboard + run_command with osascript."
+            "Preferred over manually chaining set_clipboard with keystrokes."
         ),
         "input_schema": {
             "type": "object",
@@ -2415,6 +2415,24 @@ TOOL_SCHEMAS = [
 ]
 
 
+# Tools removed from the model's toolbox. Their implementations stay in
+# jarvis/tools/ but are not offered or callable.
+# disabled by Friday hardening
+_DISABLED_TOOLS = frozenset({
+    "run_command",
+    "run_terminal_command_smart",
+    "run_coding_agent",
+    "scaffold_project",
+    "sync_browser_sessions",
+    "chrome_execute_js",
+    "chrome_type",
+    "chrome_fill_form",
+    "chrome_click",
+    "chrome_navigate",
+})
+TOOL_SCHEMAS = [schema for schema in TOOL_SCHEMAS if schema["name"] not in _DISABLED_TOOLS]
+
+
 TOOL_REGISTRY = {
     "open_application": mac_control.open_application,
     "close_application": mac_control.close_application,
@@ -2447,7 +2465,7 @@ TOOL_REGISTRY = {
     "read_screen_text": screen.read_screen_text,
     "analyze_screen": screen.analyze_screen,
     # Shell
-    "run_command": shell.run_command,
+    # disabled by Friday hardening: "run_command": shell.run_command,
     # Web search
     "search_web": web_search.search_web,
     "search_news": web_search.search_news,
@@ -2476,22 +2494,22 @@ TOOL_REGISTRY = {
     "get_browser_state": browser_agent.get_browser_state,
     "browser_switch_tab": browser_agent.browser_switch_tab,
     "browser_upload_file": browser_agent.browser_upload_file,
-    "sync_browser_sessions": browser_agent.sync_browser_sessions,
+    # disabled by Friday hardening: "sync_browser_sessions": browser_agent.sync_browser_sessions,
     "close_browser": browser_agent.close_browser,
     # Claude Code (development tasks)
-    "run_coding_agent": coding_agent.run_coding_agent,
-    "run_terminal_command_smart": coding_agent.run_terminal_command,
-    "scaffold_project": coding_agent.scaffold_project,
+    # disabled by Friday hardening: "run_coding_agent": coding_agent.run_coding_agent,
+    # disabled by Friday hardening: "run_terminal_command_smart": coding_agent.run_terminal_command,
+    # disabled by Friday hardening: "scaffold_project": coding_agent.scaffold_project,
     # Chrome Extension (direct DOM browser control)
-    "chrome_navigate": chrome_extension.chrome_navigate,
-    "chrome_click": chrome_extension.chrome_click,
-    "chrome_type": chrome_extension.chrome_type,
+    # disabled by Friday hardening: "chrome_navigate": chrome_extension.chrome_navigate,
+    # disabled by Friday hardening: "chrome_click": chrome_extension.chrome_click,
+    # disabled by Friday hardening: "chrome_type": chrome_extension.chrome_type,
     "chrome_read_page": chrome_extension.chrome_read_page,
     "chrome_find_elements": chrome_extension.chrome_find_elements,
     "chrome_screenshot": chrome_extension.chrome_screenshot,
     "chrome_get_tabs": chrome_extension.chrome_get_tabs,
-    "chrome_execute_js": chrome_extension.chrome_execute_js,
-    "chrome_fill_form": chrome_extension.chrome_fill_form,
+    # disabled by Friday hardening: "chrome_execute_js": chrome_extension.chrome_execute_js,
+    # disabled by Friday hardening: "chrome_fill_form": chrome_extension.chrome_fill_form,
     "chrome_scroll": chrome_extension.chrome_scroll,
     "chrome_extension_status": _chrome_extension_status,
     # User Profile

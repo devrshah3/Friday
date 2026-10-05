@@ -309,17 +309,19 @@ class TestAgentCoordinator:
         assert "fetch_page_text" in researcher.tool_names
 
     def test_coder_profile_has_code_tools(self):
-        """Coder profile should have code execution tools."""
+        """Coder profile keeps file tools; shell and coding-agent tools are disabled."""
         coord = AgentCoordinator()
         coder = coord.profiles[AgentType.CODER]
-        assert "run_command" in coder.tool_names
-        assert "run_coding_agent" in coder.tool_names
+        assert "read_file" in coder.tool_names
+        assert "run_command" not in coder.tool_names
+        assert "run_coding_agent" not in coder.tool_names
 
     def test_browser_profile_has_browser_tools(self):
         """Browser profile should have browser interaction tools."""
         coord = AgentCoordinator()
         browser = coord.profiles[AgentType.BROWSER]
-        assert "chrome_navigate" in browser.tool_names
+        assert "chrome_read_page" in browser.tool_names
+        assert "chrome_navigate" not in browser.tool_names
         assert "browser_navigate" in browser.tool_names
 
     def test_system_profile_has_system_tools(self):

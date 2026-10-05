@@ -23,7 +23,7 @@ def test_macos_only_tools_are_hidden_elsewhere(linux):
     names = {s["name"] for s in platform_tools.available_schemas(TOOL_SCHEMAS)}
     for hidden in ("open_application", "analyze_screen", "send_email", "create_note", "set_volume"):
         assert hidden not in names
-    for kept in ("get_weather", "search_web", "read_file", "run_command", "use_skill", "browse_web"):
+    for kept in ("get_weather", "search_web", "read_file", "use_skill", "browse_web"):
         assert kept in names
 
 

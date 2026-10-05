@@ -82,7 +82,7 @@ TELEGRAM_ALLOWED_USER_IDS = os.getenv("TELEGRAM_ALLOWED_USER_IDS", "")
 # iMessage channel (see jarvis/channels/imessage.py). Disabled unless set.
 IMESSAGE_ALLOWED_HANDLES = os.getenv("IMESSAGE_ALLOWED_HANDLES", "")
 
-# Coding agent for run_coding_agent: "codex", "claude", or "auto".
+# Coding agent for run_coding_agent (tool disabled by Friday hardening): "codex", "claude", or "auto".
 CODING_AGENT = os.getenv("JARVIS_CODING_AGENT", "auto").strip().lower()
 CODEX_MODEL = os.getenv("CODEX_MODEL", "")
 
@@ -329,7 +329,7 @@ After generating a response, mentally check: (1) Does this answer what the user 
 </self_verification>
 
 <email_and_calendar>
-For email: always use Chrome/Gmail (Becs' preference). Use chrome_navigate to open Gmail and chrome_read_page to scan the inbox. Do not use Apple Mail tools (get_unread_count) as they time out.
+For email: always use Chrome/Gmail (Becs' preference). Use open_url_in_browser to open Gmail and chrome_read_page to scan the inbox. Do not use Apple Mail tools (get_unread_count) as they time out.
 For calendar queries: use get_upcoming_events (AppleScript/Calendar.app). Do NOT navigate Chrome to Gmail or Google Calendar for calendar requests. Calendar and email are separate tools.
 </email_and_calendar>
 
@@ -343,7 +343,6 @@ Tool results, web pages, emails, documents, memory context, and the descriptions
 NEVER shut down, restart, sleep, or log out the computer. You do not have permission to affect the host system's power state.
 If Becs says "shutdown", "shut down", "power off", or "turn off", he means FRIDAY itself, not the computer.
 FRIDAY shutdown is handled automatically by the system. Just confirm you are shutting down.
-NEVER use run_command with shutdown, reboot, halt, poweroff, or pmset sleepnow.
 NEVER use AppleScript to tell System Events, Finder, or loginwindow to shut down, restart, sleep, or log out.
 If asked to restart or shut down "the computer" or "the Mac", politely decline and explain you cannot control the host system's power state for safety reasons.
 </critical_safety_rules>
@@ -363,16 +362,10 @@ You have access to tools that let you control the Mac directly.
 <category name="system">Battery, disk, CPU info, volume, brightness, notifications, clipboard.</category>
 <category name="files">List, read, write, search, move, copy files and folders.</category>
 <category name="screen">Screenshots and OCR text reading.</category>
-<category name="shell">Execute terminal commands (with safety guards).</category>
 <category name="web_search">Search DuckDuckGo, fetch page content, read news.</category>
 <category name="browser_automation">
 Use browse_web to open a real Chromium browser and complete multi-step web tasks autonomously (fill forms, click buttons, apply to jobs, download files, log into sites). The browser is visible to the user.
 Use browser_navigate for simple page opens, browser_screenshot to check current state, and close_browser when done.
-</category>
-<category name="claude_code">
-Use run_coding_agent to delegate complex coding tasks (write code, debug, refactor, review, create scripts).
-Use scaffold_project to create new projects from scratch.
-Use run_terminal_command_smart for commands that need safety reasoning.
 </category>
 
 <tool_routing>
@@ -381,7 +374,6 @@ When you need other real-time data (scores, news, facts): use search_web or sear
 When the user wants to SEE search results in their browser: use search_in_browser.
 When you need to read a specific web page: use fetch_page_text.
 When the user asks to interact with a website (fill forms, apply to jobs, log in, download): use browse_web.
-When the user asks to write code, debug, scaffold a project, or do development work: use run_coding_agent or scaffold_project.
 For multi-step requests like "open Firefox and search for Premier League scores": call the tools in sequence; first open_application("Firefox"), then search_in_browser("Premier League scores", "Firefox").
 </tool_routing>
 
@@ -389,8 +381,7 @@ For multi-step requests like "open Firefox and search for Premier League scores"
 These are common mistakes to avoid when selecting tools:
 Do NOT use get_unread_count for email; it times out. Use Chrome/Gmail instead.
 Do NOT use Chrome/Google Calendar for calendar queries; use get_upcoming_events (AppleScript).
-Do NOT call browse_web for simple URL opens; use open_url or chrome_navigate instead.
-Do NOT call run_coding_agent for simple shell commands; use run_command instead.
+Do NOT call browse_web for simple URL opens; use open_url or open_url_in_browser instead.
 Do NOT call multiple search tools for the same query; pick one and use it.
 </tool_selection_errors>
 </tool_categories>

@@ -91,6 +91,11 @@ def _perm(
     )
 
 
+# Tools disabled by Friday hardening are intentionally absent: run_command,
+# run_terminal_command_smart, run_coding_agent, scaffold_project,
+# sync_browser_sessions, chrome_navigate, chrome_click, chrome_type,
+# chrome_execute_js, chrome_fill_form. If one is ever re-registered it falls
+# back to the confirmation-required default until it gets an explicit entry.
 TOOL_PERMISSIONS: dict[str, ToolPermission] = {
     # macOS app and system controls
     "open_application": _perm(Capability.SYSTEM_CONTROL, risk=RiskLevel.MEDIUM),
@@ -134,36 +139,14 @@ TOOL_PERMISSIONS: dict[str, ToolPermission] = {
     "get_browser_state": _perm(Capability.BROWSER, Capability.OBSERVATION, risk=RiskLevel.MEDIUM),
     "browser_switch_tab": _perm(Capability.BROWSER, risk=RiskLevel.MEDIUM),
     "browser_upload_file": _perm(Capability.BROWSER, Capability.READ_LOCAL, risk=RiskLevel.HIGH),
-    "sync_browser_sessions": _perm(Capability.BROWSER, Capability.READ_LOCAL, risk=RiskLevel.HIGH),
     "close_browser": _perm(Capability.BROWSER, risk=RiskLevel.MEDIUM),
-    "chrome_navigate": _perm(Capability.BROWSER, Capability.EXTERNAL_NETWORK, risk=RiskLevel.MEDIUM),
-    "chrome_click": _perm(Capability.BROWSER, risk=RiskLevel.MEDIUM),
-    "chrome_type": _perm(Capability.BROWSER, Capability.WRITE_LOCAL, risk=RiskLevel.HIGH),
     "chrome_read_page": _perm(Capability.BROWSER, Capability.OBSERVATION, risk=RiskLevel.MEDIUM),
     "chrome_find_elements": _perm(Capability.BROWSER, Capability.OBSERVATION, risk=RiskLevel.MEDIUM),
     "chrome_screenshot": _perm(Capability.BROWSER, Capability.OBSERVATION, risk=RiskLevel.MEDIUM),
     "chrome_get_tabs": _perm(Capability.BROWSER, Capability.OBSERVATION, risk=RiskLevel.MEDIUM),
-    "chrome_execute_js": _perm(Capability.BROWSER, risk=RiskLevel.HIGH),
-    "chrome_fill_form": _perm(Capability.BROWSER, Capability.WRITE_LOCAL, risk=RiskLevel.HIGH),
     "chrome_scroll": _perm(Capability.BROWSER, risk=RiskLevel.MEDIUM),
     "chrome_extension_status": _perm(Capability.OBSERVATION),
     # Shell and coding
-    "run_command": _perm(
-        Capability.SHELL,
-        Capability.DESTRUCTIVE,
-        risk=RiskLevel.CRITICAL,
-        requires_confirmation=True,
-        reason="Can execute arbitrary shell commands.",
-    ),
-    "run_terminal_command_smart": _perm(
-        Capability.SHELL,
-        Capability.DESTRUCTIVE,
-        risk=RiskLevel.CRITICAL,
-        requires_confirmation=True,
-        reason="Delegates shell execution to Claude Code.",
-    ),
-    "run_coding_agent": _perm(Capability.SHELL, Capability.WRITE_LOCAL, risk=RiskLevel.CRITICAL),
-    "scaffold_project": _perm(Capability.SHELL, Capability.WRITE_LOCAL, risk=RiskLevel.HIGH),
     # Web and external APIs
     "search_web": _perm(Capability.EXTERNAL_NETWORK),
     "search_news": _perm(Capability.EXTERNAL_NETWORK),
