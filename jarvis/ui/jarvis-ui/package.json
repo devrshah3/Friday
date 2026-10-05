@@ -4,9 +4,9 @@
   "description": "JARVIS Dual-Mode UI: Cinematic Arc Reactor + Work Dashboard",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -H ${UI_HOST:-127.0.0.1}",
     "build": "next build",
-    "start": "next start -p ${UI_PORT:-3000}",
+    "start": "next start -H ${UI_HOST:-127.0.0.1} -p ${UI_PORT:-3000}",
     "lint": "eslint . --max-warnings=0"
   },
   "dependencies": {

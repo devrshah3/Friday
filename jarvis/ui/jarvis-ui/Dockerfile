@@ -13,5 +13,8 @@ WORKDIR /ui
 ENV NODE_ENV=production JARVIS_API_HOST=api
 COPY --from=build /ui ./
 USER node
+# Bind all interfaces inside the container only; docker-compose publishes the
+# port on the host's 127.0.0.1 alone.
+ENV UI_HOST=0.0.0.0
 EXPOSE 3000
 CMD ["npm", "start"]

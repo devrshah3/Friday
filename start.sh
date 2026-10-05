@@ -382,7 +382,7 @@ if [[ "${MODE}" == "full" || "${MODE}" == "server" ]]; then
 
         if [[ "${UI_AVAILABLE}" == "true" ]]; then
             if [[ "${JARVIS_UI_MODE}" == "dev" ]]; then
-                UI_COMMAND=(npm run dev -- --hostname 0.0.0.0 --port "${UI_PORT}")
+                UI_COMMAND=(npm run dev -- --hostname 127.0.0.1 --port "${UI_PORT}")
             else
                 UI_BUILD_MARKER="${UI_DIR}/.next/BUILD_ID"
                 UI_REBUILD_REQUIRED="false"
@@ -409,7 +409,7 @@ if [[ "${MODE}" == "full" || "${MODE}" == "server" ]]; then
                 UI_COMMAND=(npm run start)
             fi
 
-            echo "Starting JARVIS UI on http://0.0.0.0:${UI_PORT} (${JARVIS_UI_MODE}) ..."
+            echo "Starting JARVIS UI on http://127.0.0.1:${UI_PORT} (${JARVIS_UI_MODE}) ..."
             (cd "${UI_DIR}" && UI_PORT="${UI_PORT}" JARVIS_API_PORT="${API_PORT}" "${UI_COMMAND[@]}") &
             UI_PID=$!
             if ! wait_for_http "http://127.0.0.1:${UI_PORT}" 24; then
