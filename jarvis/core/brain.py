@@ -121,9 +121,9 @@ def _is_chat_only(text: str) -> bool:
 # Patterns that indicate the user wants to shut down JARVIS (intercepted to prevent system shutdown).
 _JARVIS_SHUTDOWN_PATTERNS = [
     # "shut down jarvis/javies/javis" (forgiving Whisper misspellings)
-    r"\b(?:shut\s*down|shutdown|power\s*off|turn\s*off)\s*(?:jarvis|javies?|javis|yourself|the\s*system|the\s*assistant)\b",
-    r"\b(?:jarvis|javies?|javis|system)\s*(?:shut\s*down|shutdown|power\s*off|turn\s*off)\b",
-    r"\b(?:exit|quit|stop|terminate|kill)\s*(?:jarvis|javies?|javis|yourself|the\s*system|the\s*assistant)\b",
+    r"\b(?:shut\s*down|shutdown|power\s*off|turn\s*off)\s*(?:friday|jarvis|javies?|javis|yourself|the\s*system|the\s*assistant)\b",
+    r"\b(?:friday|jarvis|javies?|javis|system)\s*(?:shut\s*down|shutdown|power\s*off|turn\s*off)\b",
+    r"\b(?:exit|quit|stop|terminate|kill)\s*(?:friday|jarvis|javies?|javis|yourself|the\s*system|the\s*assistant)\b",
     r"\b(?:go\s*(?:to\s*)?(?:sleep|offline)|power\s*down)\b",
     r"^(?:shut\s*down|shutdown|power\s*off|turn\s*off)[\s!.,]*$",
     r"\b(?:shut\s*down|quit|exit)\s*now\b",
@@ -342,7 +342,7 @@ class JarvisBrain:
         if _is_jarvis_shutdown(user_input):
             logger.info("JARVIS shutdown requested by user.")
             self._shutdown_requested = True
-            yield "Shutting down JARVIS. All systems offline. Goodbye, sir."
+            yield "Shutting down FRIDAY. All systems offline. Goodbye, sir."
             return
 
         if settings.LOCAL_FIRST_ENABLED:
@@ -846,7 +846,7 @@ class JarvisBrain:
                 summary_prompt,
                 tier="fast",
                 system_prompt_override=(
-                    "You are JARVIS, a personal AI assistant. Summarize the results "
+                    "You are FRIDAY, a personal AI assistant. Summarize the results "
                     "of a multi-step task you just completed. Be concise, warm, and "
                     "conversational. Address the user as 'sir'."
                 ),

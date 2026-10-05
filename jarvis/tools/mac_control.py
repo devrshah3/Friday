@@ -36,8 +36,8 @@ def _is_applescript_safe(script: str) -> tuple[bool, str]:
         if phrase in script_lower:
             return False, (
                 f"Blocked: script contains '{phrase}'. "
-                "JARVIS cannot shut down, restart, sleep, or log out. "
-                "To shut down JARVIS itself, say 'quit JARVIS' or 'exit JARVIS'."
+                "FRIDAY cannot shut down, restart, sleep, or log out. "
+                "To shut down FRIDAY itself, say 'quit FRIDAY' or 'exit FRIDAY'."
             )
 
     for app in _PROTECTED_APPS:

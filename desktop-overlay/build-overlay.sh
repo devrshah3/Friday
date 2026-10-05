@@ -67,7 +67,7 @@ cat > "${CONTENTS_DIR}/Info.plist" << 'EOF'
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>JARVIS Overlay</string>
+    <string>FRIDAY Overlay</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

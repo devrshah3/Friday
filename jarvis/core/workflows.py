@@ -1983,7 +1983,7 @@ async def _execute_email_digest(action: dict[str, Any]) -> str:
 async def _execute_notification(action: dict[str, Any], workflow_name: str) -> str:
     from jarvis.tools.mac_control import send_notification
 
-    title = str(action.get("title") or workflow_name or "JARVIS Workflow")
+    title = str(action.get("title") or workflow_name or "FRIDAY Workflow")
     message = str(action.get("message") or action.get("prompt") or "Workflow step completed.")
     result = await _with_timeout("Notification", send_notification(title, message), timeout=8.0)
     return str(result)
@@ -1992,7 +1992,7 @@ async def _execute_notification(action: dict[str, Any], workflow_name: str) -> s
 async def _execute_calendar_event(action: dict[str, Any], *, approved: bool = False) -> str:
     from jarvis.tools.calendar_email import create_calendar_event
 
-    title = str(action.get("title") or action.get("message") or "JARVIS Event")
+    title = str(action.get("title") or action.get("message") or "FRIDAY Event")
     start_date = str(action.get("start") or action.get("start_date") or "")
     if not start_date:
         return "Calendar event skipped: start_date is required."

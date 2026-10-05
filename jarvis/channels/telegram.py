@@ -100,7 +100,7 @@ class TelegramBridge:
             {"text": "Approve", "callback_data": f"approve:{action['id']}"},
             {"text": "Deny", "callback_data": f"deny:{action['id']}"},
         ]]}
-        text = f"JARVIS wants to run {action['tool']} ({action['risk']} risk):\n{action['summary']}"
+        text = f"FRIDAY wants to run {action['tool']} ({action['risk']} risk):\n{action['summary']}"
         if self._owner is not None:
             await self.send(self._owner, text, reply_markup=keyboard)
 
@@ -130,7 +130,7 @@ class TelegramBridge:
         chat_id = int(message["chat"]["id"])
         self._chat_ids.add(chat_id)
         if text == "/start":
-            await self.send(chat_id, "JARVIS here. Ask me anything.")
+            await self.send(chat_id, "FRIDAY here. Ask me anything.")
             return
         async with self._slots:  # bound concurrent brain requests
             await self._call("sendChatAction", chat_id=chat_id, action="typing")

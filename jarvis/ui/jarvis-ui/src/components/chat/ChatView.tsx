@@ -90,7 +90,7 @@ export default function ChatView({
                 </svg>
               </div>
               <p className="text-sm text-jarvis-text-dim/35 font-light">
-                Start a conversation with JARVIS
+                Start a conversation with FRIDAY
               </p>
               <p className="text-2xs text-jarvis-text-dim/20 mt-1.5">
                 Type below or switch to Voice mode
@@ -124,7 +124,7 @@ export default function ChatView({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-2xs font-medium text-jarvis-text-dim/55">
-                          {isUser ? "Becs" : "JARVIS"}
+                          {isUser ? "Becs" : "FRIDAY"}
                         </span>
                         {!isUser && (msg.agentType || msg.tierUsed) && (
                           <AgentBadge agentType={msg.agentType} tierUsed={msg.tierUsed} />

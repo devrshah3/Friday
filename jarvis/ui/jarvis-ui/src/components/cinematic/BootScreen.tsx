@@ -185,7 +185,7 @@ export const BootScreen: React.FC<BootScreenProps> = ({ progress, className = ''
         ctx.shadowColor = rgba(CYAN, 0.8 * textReveal);
         ctx.shadowBlur = 20;
         ctx.fillStyle = rgba(CYAN_BRIGHT, 0.9 * textReveal);
-        ctx.fillText('J . A . R . V . I . S', cx + fontSize * 0.15, cy);
+        ctx.fillText('F . R . I . D . A . Y', cx + fontSize * 0.15, cy);
         ctx.shadowBlur = 0;
 
         const subReveal = Math.max(0, Math.min(1, (progress - 0.6) * 2.5));
@@ -193,7 +193,7 @@ export const BootScreen: React.FC<BootScreenProps> = ({ progress, className = ''
           const subSize = Math.max(8, maxR * 0.04);
           ctx.font = `300 ${subSize}px "SF Pro Display", "Inter", "Segoe UI", system-ui, sans-serif`;
           ctx.fillStyle = rgba(CYAN, 0.4 * subReveal);
-          ctx.fillText('JUST A RATHER VERY INTELLIGENT SYSTEM', cx, cy + fontSize * 1.1);
+          ctx.fillText('FEMALE REPLACEMENT INTELLIGENT DIGITAL ASSISTANT YOUTH', cx, cy + fontSize * 1.1);
 
           const verReveal = Math.max(0, Math.min(1, (progress - 0.7) * 3));
           if (verReveal > 0) {

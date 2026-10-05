@@ -85,6 +85,9 @@ class VoiceSpeaker:
         import re
 
         pronunciation_map = {
+            "FRIDAY": "Friday",
+            "F.R.I.D.A.Y.": "Friday",
+            "F.R.I.D.A.Y": "Friday",
             "JARVIS": "Jarvis",
             "J.A.R.V.I.S.": "Jarvis",
             "J.A.R.V.I.S": "Jarvis",

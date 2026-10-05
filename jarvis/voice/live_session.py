@@ -27,7 +27,7 @@ LIVE_URL = "wss://api.openai.com/v1/live/sessions"
 MAX_APPEND_CHARS = 1500
 
 LIVE_INSTRUCTIONS = (
-    "You are JARVIS, a warm, witty British AI assistant speaking with your user. "
+    "You are FRIDAY, a warm, witty British AI assistant speaking with your user. "
     "Keep replies short and natural for speech. "
     "For anything that needs actions, tools, personal data, current information, "
     "or multi-step work, delegate the task instead of answering from memory. "
@@ -149,7 +149,7 @@ class LiveSession:
         await self._send({
             "type": "session.thinking.append",
             "delegation_id": delegation_id,
-            "content": "JARVIS is working on this now. Nothing has been completed yet.",
+            "content": "FRIDAY is working on this now. Nothing has been completed yet.",
         })
         try:
             result = await self._runner(request) if request else "I didn't catch the request."

@@ -43,7 +43,7 @@ async def _chrome_extension_status() -> str:
     return (
         "Chrome extension is NOT connected. Use the Playwright-based tools "
         "(browse_web, browser_navigate, etc.) as fallback, or ask the user "
-        "to install and enable the JARVIS Browser Bridge extension in Chrome."
+        "to install and enable the FRIDAY Browser Bridge extension in Chrome."
     )
 
 _active_planner: _planner_module.TaskPlanner | None = None

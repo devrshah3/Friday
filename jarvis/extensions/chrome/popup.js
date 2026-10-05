@@ -7,12 +7,12 @@ const btnSendPage = document.getElementById("btnSendPage");
 const versionEl = document.getElementById("version");
 
 const manifest = chrome.runtime.getManifest();
-versionEl.textContent = `JARVIS Browser Bridge v${manifest.version}`;
+versionEl.textContent = `FRIDAY Browser Bridge v${manifest.version}`;
 
 function updateUI(status) {
   if (status.connected) {
     statusDot.className = "status-dot connected";
-    statusText.textContent = "Connected to JARVIS server";
+    statusText.textContent = "Connected to FRIDAY server";
     btnConnect.style.display = "none";
     btnDisconnect.style.display = "block";
     btnSendPage.disabled = false;
@@ -72,6 +72,6 @@ btnSendPage.addEventListener("click", async () => {
 
   btnSendPage.textContent = "Sent!";
   setTimeout(() => {
-    btnSendPage.textContent = "Send this page to JARVIS";
+    btnSendPage.textContent = "Send this page to FRIDAY";
   }, 2000);
 });

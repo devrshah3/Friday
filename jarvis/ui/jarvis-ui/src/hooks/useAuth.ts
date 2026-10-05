@@ -70,12 +70,12 @@ export function useAuth(): AuthState {
       } else {
         setAuthRequired(true);
         setIsAuthenticated(false);
-        setLoginError("JARVIS is reachable, but auth status could not be verified.");
+        setLoginError("FRIDAY is reachable, but auth status could not be verified.");
       }
     } catch {
       setAuthRequired(true);
       setIsAuthenticated(false);
-      setLoginError("Cannot reach JARVIS server. Check that the backend is running.");
+      setLoginError("Cannot reach FRIDAY server. Check that the backend is running.");
     } finally {
       setIsLoading(false);
     }
@@ -128,7 +128,7 @@ export function useAuth(): AuthState {
         return false;
       }
     } catch (err) {
-      setLoginError("Cannot reach JARVIS server. Please try again.");
+      setLoginError("Cannot reach FRIDAY server. Please try again.");
       return false;
     }
   }, []);

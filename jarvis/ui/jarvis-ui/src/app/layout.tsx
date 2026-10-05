@@ -2,12 +2,12 @@ import type { Metadata, Viewport } from "next";
 import "@/styles/globals.css";
 
 export const metadata: Metadata = {
-  title: "J.A.R.V.I.S.",
-  description: "Just A Rather Very Intelligent System",
+  title: "F.R.I.D.A.Y.",
+  description: "Female Replacement Intelligent Digital Assistant Youth",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "JARVIS",
+    title: "FRIDAY",
   },
 };
 

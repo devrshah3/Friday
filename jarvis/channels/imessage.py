@@ -156,7 +156,7 @@ class IMessageBridge:
         action = payload["confirmation"]
         await self.reply(
             self._reply_to[self._owner],
-            f"JARVIS wants to run {action['tool']} ({action['risk']} risk): {action['summary']}\n"
+            f"FRIDAY wants to run {action['tool']} ({action['risk']} risk): {action['summary']}\n"
             'Reply "yes" to approve or "no" to deny.',
         )
 

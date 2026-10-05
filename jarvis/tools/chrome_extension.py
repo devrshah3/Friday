@@ -78,7 +78,7 @@ async def _send_command(action: str, **params: Any) -> dict[str, Any]:
     if not is_extension_connected():
         raise ConnectionError(
             "Chrome extension is not connected. "
-            "Install and enable the JARVIS Browser Bridge extension in Chrome."
+            "Install and enable the FRIDAY Browser Bridge extension in Chrome."
         )
     ws = _extension_ws
     if ws is None:

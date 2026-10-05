@@ -584,25 +584,25 @@ export default function ProductView({ authToken }: ProductViewProps) {
   }
 
   async function restartJarvis() {
-    if (!window.confirm("Restart JARVIS now? Active voice, workflow, and socket sessions will briefly disconnect.")) {
+    if (!window.confirm("Restart FRIDAY now? Active voice, workflow, and socket sessions will briefly disconnect.")) {
       return;
     }
     const data = await api("/app/lifecycle/restart", {
       method: "POST",
       body: JSON.stringify({ mode: lifecycle?.runtime.mode || "full", dry_run: false }),
     });
-    setMessage(data.message || "JARVIS restart scheduled.");
+    setMessage(data.message || "FRIDAY restart scheduled.");
   }
 
   async function quitJarvis() {
-    if (!window.confirm("Quit JARVIS now? You will need to relaunch it from the desktop or terminal.")) {
+    if (!window.confirm("Quit FRIDAY now? You will need to relaunch it from the desktop or terminal.")) {
       return;
     }
     const data = await api("/app/lifecycle/quit", {
       method: "POST",
       body: JSON.stringify({ dry_run: false, force_after_seconds: 8 }),
     });
-    setMessage(data.message || "JARVIS quit scheduled.");
+    setMessage(data.message || "FRIDAY quit scheduled.");
   }
 
   return (

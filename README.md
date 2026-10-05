@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="docs/screenshots/jarvis-demo.gif" alt="JARVIS booting up: the arc reactor HUD resolving into the live particle orb" width="560" />
+  <img src="docs/screenshots/jarvis-demo.gif" alt="FRIDAY booting up: the arc reactor HUD resolving into the live particle orb" width="560" />
 </p>
 
-<h1 align="center">J.A.R.V.I.S.</h1>
-<h3 align="center">The open-source JARVIS for your Mac: talk to it, let it act, run it fully offline.</h3>
+<h1 align="center">F.R.I.D.A.Y.</h1>
+<h3 align="center">The open-source FRIDAY for your Mac: talk to it, let it act, run it fully offline.</h3>
 
 <p align="center">
   <a href="https://github.com/bertrandmbanwi/Jarvis/actions/workflows/ci.yml"><img src="https://github.com/bertrandmbanwi/Jarvis/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
@@ -29,7 +29,7 @@ Say "Hey JARVIS" and it answers in a British voice. You can ask it to check your
 | 🎙️ **Voice first** | Wake word, local speech-to-text and text-to-speech, and interruptions. Press **Live** for a full-duplex conversation on OpenAI GPT-Live. |
 | 🧠 **Your choice of models** | OpenAI (GPT-6.1 Sol / GPT-6 Luna) by default, Claude as an option, or **fully offline** on Ollama/MLX with Apple's on-device model for quick replies. |
 | 🛠️ **Acts, not just answers** | macOS control, a Chrome extension, a Playwright browser agent with computer use, and Codex or Claude Code for coding tasks. |
-| 🔌 **MCP both ways** | Use any MCP server's tools, or make JARVIS's tools available to Claude Code, Cursor and Codex. |
+| 🔌 **MCP both ways** | Use any MCP server's tools, or make FRIDAY's tools available to Claude Code, Cursor and Codex. |
 | 📚 **Agent Skills** | Drop in `SKILL.md` skills (the open format used by Claude and Codex). Ships with a morning briefing and meeting prep. |
 | 📱 **Everywhere** | Cinematic web UI, desktop overlay, phone access via Cloudflare Tunnel, and Telegram or iMessage with approval prompts. |
 | 🔒 **Safe by default** | Human approval for high-risk actions, local-origin checks, PIN-protected remote access, and secrets in the macOS Keychain. |
@@ -42,30 +42,30 @@ git clone https://github.com/bertrandmbanwi/Jarvis.git && cd Jarvis
 
 ## "Good evening, sir. I've prepared a summary of your system."
 
-JARVIS lives on your Mac. Talk to it, type in the chat, or let it operate your computer. It can see your screen, manage your files, browse the web, drive your Chrome browser, and remember your preferences across sessions.
+FRIDAY lives on your Mac. Talk to it, type in the chat, or let it operate your computer. It can see your screen, manage your files, browse the web, drive your Chrome browser, and remember your preferences across sessions.
 
 Each request goes to the right model tier: a fast model for quick lookups, a stronger one for conversation and tool use, and deep reasoning for multi-step plans. You can run it on OpenAI, on Anthropic, or entirely on local models.
 
 <p align="center">
-  <img src="docs/screenshots/chat-view.png" alt="JARVIS Chat Interface" width="700" />
+  <img src="docs/screenshots/chat-view.png" alt="FRIDAY Chat Interface" width="700" />
 </p>
 
 ## The Arc Reactor (Features)
 
 **Voice Interaction**
-Speak naturally and JARVIS responds with a warm British accent. Powered by Moonshine ONNX (primary STT, low hallucination) with faster-whisper as fallback, and Kokoro TTS with chunked Opus streaming for sub-second latency. Wake word detection ("Hey JARVIS") runs continuously in the background via OpenWakeWord.
+Speak naturally and FRIDAY responds with a warm British accent. Powered by Moonshine ONNX (primary STT, low hallucination) with faster-whisper as fallback, and Kokoro TTS with chunked Opus streaming for sub-second latency. Wake word detection ("Hey JARVIS") runs continuously in the background via OpenWakeWord.
 
 **Cinematic Web UI**
-A GLSL shader-driven Three.js particle orb with 2,400 particles across three shells, simplex noise displacement, electric arcs, dust motes, and holographic rings. The orb pulses and reacts to JARVIS' state: idle, listening, thinking, speaking, error. Three views: Voice (the orb), Chat (message interface), and System (dashboard with live cost tracking). Optional PIN protection is available for mobile access.
+A GLSL shader-driven Three.js particle orb with 2,400 particles across three shells, simplex noise displacement, electric arcs, dust motes, and holographic rings. The orb pulses and reacts to FRIDAY's state: idle, listening, thinking, speaking, error. Three views: Voice (the orb), Chat (message interface), and System (dashboard with live cost tracking). Optional PIN protection is available for mobile access.
 
 **Desktop Overlay (macOS)**
-A native Swift overlay that floats above all windows in the bottom-right corner. Shows JARVIS' current state (Standing By, Listening, Processing, Speaking) with a miniature Three.js particle orb and live conversation text. Connects via WebSocket, launches automatically with `./start.sh full`, and supports `Control+Option+J` global voice activation. Built with WKWebView for transparent rendering over your desktop.
+A native Swift overlay that floats above all windows in the bottom-right corner. Shows FRIDAY's current state (Standing By, Listening, Processing, Speaking) with a miniature Three.js particle orb and live conversation text. Connects via WebSocket, launches automatically with `./start.sh full`, and supports `Control+Option+J` global voice activation. Built with WKWebView for transparent rendering over your desktop.
 
 **Chrome Extension (Browser Bridge)**
-A Manifest V3 Chrome extension that gives JARVIS direct control over your browser. Manages tabs, navigates pages, fills forms, clicks elements, takes screenshots, reads page content, and executes scoped JavaScript. Auto-reconnects to JARVIS using a `chrome.alarms` keepalive that survives service worker termination, so the extension comes online automatically when JARVIS starts. No manual interaction needed.
+A Manifest V3 Chrome extension that gives FRIDAY direct control over your browser. Manages tabs, navigates pages, fills forms, clicks elements, takes screenshots, reads page content, and executes scoped JavaScript. Auto-reconnects to FRIDAY using a `chrome.alarms` keepalive that survives service worker termination, so the extension comes online automatically when FRIDAY starts. No manual interaction needed.
 
 **Browser Automation (Playwright)**
-A full Playwright-driven Chromium browser that JARVIS controls autonomously for complex multi-step workflows. Fill forms, click buttons, log into sites, apply to jobs, download files. Persistent browser profile means sessions and cookies survive restarts. The Chrome extension handles lightweight tab operations; Playwright handles deep page automation.
+A full Playwright-driven Chromium browser that FRIDAY controls autonomously for complex multi-step workflows. Fill forms, click buttons, log into sites, apply to jobs, download files. Persistent browser profile means sessions and cookies survive restarts. The Chrome extension handles lightweight tab operations; Playwright handles deep page automation.
 
 **macOS System Control**
 106 built-in tools across 17 categories (plus any MCP server you connect): open and close apps, adjust volume and brightness, manage files, execute shell commands, take screenshots with OCR, search the web, check weather, query free public-data APIs, read Gmail, manage Apple Notes, and delegate coding tasks to OpenAI Codex CLI or Claude Code.
@@ -74,7 +74,7 @@ A full Playwright-driven Chromium browser that JARVIS controls autonomously for 
 Complex requests are automatically decomposed into subtasks by the planner agent, then executed in parallel or sequence by specialized executor agents. The QA agent verifies task quality, and the UI shows real-time plan progress with per-subtask status.
 
 **Memory and Learning**
-SQLite-backed semantic memory with full-text search stores conversation context. JARVIS learns your implicit preferences, remembers explicit facts ("my dog's name is Max"), and improves its task planning based on past successes and failures. A success tracker logs task outcomes for long-term analysis.
+SQLite-backed semantic memory with full-text search stores conversation context. FRIDAY learns your implicit preferences, remembers explicit facts ("my dog's name is Max"), and improves its task planning based on past successes and failures. A success tracker logs task outcomes for long-term analysis.
 
 **Settings and Runtime Configuration**
 A REST API (`/api/settings`) and an in-UI Settings Panel let you adjust preferences at runtime: model tiers, cost alerts, TTS voice, and more. Non-secret changes persist to `.env`; API keys updated through the API are stored in the secure keyring backend, which maps to macOS Keychain on a normal Mac install.
@@ -86,34 +86,34 @@ Every tool has a formal permission classification and redacted audit trail. Requ
 Responses are automatically checked for quality issues: length limits for TTS, character consistency, response structure, and formatting. The QA verification agent retries tasks that do not meet quality thresholds.
 
 **Work Sessions**
-Long-running coding sessions persist to disk and restore automatically on restart, so multi-step development tasks survive JARVIS restarts without losing context.
+Long-running coding sessions persist to disk and restore automatically on restart, so multi-step development tasks survive FRIDAY restarts without losing context.
 
 **Structured Prompt Templates**
 Task-specific prompt templates (build, feature, fix, refactor, research) guide the planner with structured formats and safe defaults.
 
 **Multi-Device Audio Routing**
-Connect from your Mac, phone, and tablet simultaneously. Each device registers independently and audio is routed only to devices that want it. Interrupt JARVIS mid-sentence from any device.
+Connect from your Mac, phone, and tablet simultaneously. Each device registers independently and audio is routed only to devices that want it. Interrupt FRIDAY mid-sentence from any device.
 
 **Fully Offline Mode**
-Set `OFFLINE_MODE=true` and JARVIS makes no cloud model calls. Tool use runs on a local model through Ollama or MLX, quick replies use Apple's on-device Foundation Model (macOS 26+, free and private), and speech stays local. All 106 tools keep working.
+Set `OFFLINE_MODE=true` and FRIDAY makes no cloud model calls. Tool use runs on a local model through Ollama or MLX, quick replies use Apple's on-device Foundation Model (macOS 26+, free and private), and speech stays local. All 106 tools keep working.
 
 **MCP (Model Context Protocol)**
-Plug any MCP server into JARVIS through `~/.jarvis/mcp.json` (the same format as Claude Desktop and Cursor), and its tools become JARVIS tools, still behind the approval prompt. It works the other way too: `python -m jarvis.mcp_server` exposes JARVIS's tools to Claude Code, Cursor or Codex.
+Plug any MCP server into FRIDAY through `~/.jarvis/mcp.json` (the same format as Claude Desktop and Cursor), and its tools become FRIDAY tools, still behind the approval prompt. It works the other way too: `python -m jarvis.mcp_server` exposes FRIDAY's tools to Claude Code, Cursor or Codex.
 
 **Agent Skills**
-Drop `SKILL.md` folders into `skills/` or `~/.jarvis/skills` and JARVIS loads their instructions only when a task needs them. This is the open Agent Skills format, so skills written for other agents work here too. Ships with `morning-briefing` and `meeting-prep`.
+Drop `SKILL.md` folders into `skills/` or `~/.jarvis/skills` and FRIDAY loads their instructions only when a task needs them. This is the open Agent Skills format, so skills written for other agents work here too. Ships with `morning-briefing` and `meeting-prep`.
 
 **Telegram, iMessage and Scheduled Routines**
-Message JARVIS from Telegram or iMessage (allow-listed senders only), with approval prompts for anything risky. Give a routine a time (for example, the morning briefing at 07:30 on weekdays) and JARVIS runs it and sends you the result.
+Message FRIDAY from Telegram or iMessage (allow-listed senders only), with approval prompts for anything risky. Give a routine a time (for example, the morning briefing at 07:30 on weekdays) and FRIDAY runs it and sends you the result.
 
 **Cloud Voice Mode (GPT-Live)**
-Press **Live** for a hands-free, full-duplex conversation on OpenAI's GPT-Live: interrupt at any time, and JARVIS does the actual work (tools, memory, approvals) behind it. Local voice stays the free, offline default.
+Press **Live** for a hands-free, full-duplex conversation on OpenAI's GPT-Live: interrupt at any time, and FRIDAY does the actual work (tools, memory, approvals) behind it. Local voice stays the free, offline default.
 
 **Mobile Access**
 Built-in Cloudflare Tunnel support is available when you set `JARVIS_ENABLE_TUNNEL=true`. The UI is fully responsive, and the microphone works over HTTPS. Remote access requires PIN authentication by default; localhost still opens directly.
 
 <p align="center">
-  <img src="docs/screenshots/system-dashboard.png" alt="JARVIS System Dashboard" width="700" />
+  <img src="docs/screenshots/system-dashboard.png" alt="FRIDAY System Dashboard" width="700" />
 </p>
 
 ## Suit Up (Quick Start)
@@ -197,7 +197,7 @@ Cost tracking is built in. The System dashboard shows per-session spend, token c
 
 ## Testing
 
-JARVIS includes a test suite covering hardening (retry logic, rate limiting, input sanitization, fork bomb detection), cost tracking, multi-agent coordination, planner heuristics, learning/evolution pipeline, and memory subsystems.
+FRIDAY includes a test suite covering hardening (retry logic, rate limiting, input sanitization, fork bomb detection), cost tracking, multi-agent coordination, planner heuristics, learning/evolution pipeline, and memory subsystems.
 
 ```bash
 source .venv/bin/activate
@@ -257,7 +257,9 @@ bash scripts/package_macos_app.sh --install-user
 
 ## License
 
-[MIT License](LICENSE). Build your own JARVIS.
+[MIT License](LICENSE). Build your own FRIDAY.
+
+Based on Jarvis by bertrandmbanwi (MIT License).
 
 ## Acknowledgments
 

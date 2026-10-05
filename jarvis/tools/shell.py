@@ -38,7 +38,7 @@ def is_command_safe(command: str, confirmed: bool = False) -> tuple[bool, str]:
         if re.search(rf"\b{re.escape(power_cmd)}\b", cmd_lower):
             return False, (
                 f"Blocked: '{power_cmd}' would affect the host computer. "
-                "JARVIS cannot shut down, restart, or sleep the system."
+                "FRIDAY cannot shut down, restart, or sleep the system."
             )
 
     if "osascript" in cmd_lower:
@@ -46,7 +46,7 @@ def is_command_safe(command: str, confirmed: bool = False) -> tuple[bool, str]:
             if phrase in cmd_lower:
                 return False, (
                     f"Blocked: AppleScript command contains '{phrase}'. "
-                    "JARVIS cannot shut down, restart, or sleep the system."
+                    "FRIDAY cannot shut down, restart, or sleep the system."
                 )
 
     for prefix in SENSITIVE_PREFIXES:

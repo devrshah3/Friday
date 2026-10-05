@@ -429,7 +429,7 @@ def restart_app(
         "process_group": target["process_group"],
         "strategy": "launch_agent" if launch_agent_loaded else "detached_start",
         "restart_command": restart_cmd,
-        "message": "JARVIS restart scheduled." if not dry_run else "JARVIS restart preview.",
+        "message": "FRIDAY restart scheduled." if not dry_run else "FRIDAY restart preview.",
     }
     if not dry_run:
         _schedule_lifecycle_child(payload)
@@ -461,7 +461,7 @@ def quit_app(
         "target_source": target["source"],
         "process_group": target["process_group"],
         "force_after_seconds": force_after_seconds,
-        "message": "JARVIS quit scheduled." if not dry_run else "JARVIS quit preview.",
+        "message": "FRIDAY quit scheduled." if not dry_run else "FRIDAY quit preview.",
     }
     if not dry_run:
         _schedule_lifecycle_child(payload)

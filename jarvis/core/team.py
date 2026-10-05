@@ -32,7 +32,7 @@ def _default_team() -> dict[str, Any]:
     now = _now()
     return {
         "id": "local-team",
-        "name": "Personal JARVIS",
+        "name": "Personal FRIDAY",
         "mode": "single_user",
         "created_at": now,
         "updated_at": now,

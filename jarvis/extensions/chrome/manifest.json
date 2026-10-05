@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "JARVIS Browser Bridge",
+  "name": "FRIDAY Browser Bridge",
   "version": "0.1.0",
-  "description": "Connects your Chrome browser to JARVIS for intelligent browser automation via voice and chat commands.",
+  "description": "Connects your Chrome browser to FRIDAY for intelligent browser automation via voice and chat commands.",
   "permissions": [
     "activeTab",
     "tabs",

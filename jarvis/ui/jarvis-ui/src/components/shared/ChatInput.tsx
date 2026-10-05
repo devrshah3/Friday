@@ -144,7 +144,7 @@ export default function ChatInput({
               ? "Listening... tap mic to stop"
               : isTranscribing
                 ? "Transcribing..."
-                : "Ask JARVIS anything..."
+                : "Ask FRIDAY anything..."
           }
           disabled={isBusy}
           className="jarvis-input flex-1"
