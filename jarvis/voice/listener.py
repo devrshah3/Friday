@@ -1,0 +1,785 @@
+"""JARVIS Voice Listener: microphone input, wake word detection, and speech-to-text."""
+import asyncio
+import contextlib
+import logging
+import time
+from collections.abc import Callable
+from typing import Any
+
+import numpy as np
+
+from jarvis.config import settings
+from jarvis.core import profile
+from jarvis.core.local_router import is_probable_noise
+from jarvis.voice.vad import SpeechDetector
+
+logger = logging.getLogger("jarvis.voice.listener")
+
+try:
+    import pyaudio
+    HAS_PYAUDIO = True
+except ImportError:
+    HAS_PYAUDIO = False
+    logger.warning("PyAudio not installed. Voice input disabled.")
+
+try:
+    import openwakeword
+    from openwakeword.model import Model as WakeWordModel
+    HAS_WAKEWORD = True
+except ImportError:
+    HAS_WAKEWORD = False
+    logger.warning("OpenWakeWord not installed. Wake word detection disabled.")
+
+try:
+    from moonshine_onnx import MoonshineOnnxModel
+    HAS_MOONSHINE = True
+except ImportError:
+    HAS_MOONSHINE = False
+    logger.info("Moonshine ONNX not installed. Trying faster-whisper as fallback.")
+
+try:
+    from faster_whisper import WhisperModel
+    HAS_WHISPER = True
+except ImportError:
+    HAS_WHISPER = False
+    if not HAS_MOONSHINE:
+        logger.warning("faster-whisper not installed.")
+
+if not HAS_WHISPER and not HAS_MOONSHINE:
+    try:
+        import whisper
+        HAS_WHISPER_ORIGINAL = True
+    except ImportError:
+        HAS_WHISPER_ORIGINAL = False
+        logger.warning("No STT library found. Speech-to-text disabled.")
+    else:
+        HAS_WHISPER_ORIGINAL = True
+else:
+    HAS_WHISPER_ORIGINAL = False
+
+
+class VoiceListener:
+    """Listens for wake word, captures and transcribes speech."""
+
+    def __init__(self):
+        self._audio: Any | None = None
+        self._stream: Any | None = None
+        self._wake_model: Any | None = None
+        self._whisper_model: Any | None = None
+        self._moonshine_model: Any | None = None
+        self._moonshine_tokenizer: Any | None = None
+        self._stt_engine: str = "none"  # "moonshine", "faster-whisper", "whisper", "none"
+        self._is_listening = False
+        self._is_speaking = False
+        self._vad = SpeechDetector()
+        self._barge_in_frames = 0
+        # Called when the user talks over JARVIS (set to the speaker's stop_speaking).
+        self.on_barge_in: Callable[[], None] | None = None
+        self._in_followup_window = False
+        self._followup_start = 0.0
+        self._last_wake_time = 0.0
+        self._on_wake_callback: Callable | None = None
+        self._on_speech_callback: Callable | None = None
+        self.FOLLOWUP_WINDOW_SECONDS = 8.0
+        self._followup_sustained_frames = 0
+        self._followup_max_amplitude = 0.0
+        self._activation_requested = False
+        self._capturing = False
+        # Serializes every _record_speech so two recorders (the wake-word loop and
+        # a confirmation capture_reply) never read the shared PyAudio stream at once.
+        self._stream_lock = asyncio.Lock()
+
+    def initialize(self) -> bool:
+        """Set up audio, wake word model, and whisper."""
+        success = True
+
+        if HAS_PYAUDIO:
+            try:
+                self._audio = pyaudio.PyAudio()
+                logger.info("PyAudio initialized. Input devices:")
+                for i in range(self._audio.get_device_count()):
+                    info = self._audio.get_device_info_by_index(i)
+                    if info["maxInputChannels"] > 0:
+                        logger.info(
+                            "  [%d] %s (%.0f Hz)",
+                            i, info["name"], info["defaultSampleRate"]
+                        )
+            except Exception as e:
+                logger.error("PyAudio init failed: %s", e)
+                success = False
+        else:
+            success = False
+
+        if HAS_WAKEWORD:
+            try:
+                openwakeword.utils.download_models()
+                self._wake_model = WakeWordModel(
+                    wakeword_models=["hey_jarvis_v0.1"],
+                    inference_framework="onnx",
+                )
+                logger.info("OpenWakeWord initialized (hey_jarvis model).")
+            except Exception as e:
+                logger.warning("Wake word init failed: %s. Will use keyboard activation.", e)
+        else:
+            logger.info("Wake word not available. Use keyboard to activate.")
+
+        # STT engine priority: Moonshine > faster-whisper > original whisper
+        stt_initialized = False
+
+        if HAS_MOONSHINE:
+            try:
+                moonshine_model_name = getattr(settings, "MOONSHINE_MODEL", "moonshine/base")
+                self._moonshine_model = MoonshineOnnxModel(model_name=moonshine_model_name)
+                from moonshine_onnx import load_tokenizer
+                self._moonshine_tokenizer = load_tokenizer()
+                self._stt_engine = "moonshine"
+                stt_initialized = True
+                logger.info("Moonshine ONNX initialized (model: %s). Lower hallucination rate than Whisper.", moonshine_model_name)
+            except Exception as e:
+                logger.warning("Moonshine init failed, falling back to faster-whisper: %s", e)
+
+        if not stt_initialized and HAS_WHISPER:
+            try:
+                self._whisper_model = WhisperModel(
+                    settings.WHISPER_MODEL,
+                    device="auto",
+                    compute_type="int8",
+                )
+                self._stt_engine = "faster-whisper"
+                stt_initialized = True
+                logger.info("faster-whisper initialized (model: %s)", settings.WHISPER_MODEL)
+            except Exception as e:
+                logger.warning("faster-whisper init failed: %s", e)
+
+        if not stt_initialized and HAS_WHISPER_ORIGINAL:
+            try:
+                self._whisper_model = whisper.load_model(settings.WHISPER_MODEL)
+                self._stt_engine = "whisper"
+                stt_initialized = True
+                logger.info("Whisper (original) initialized (model: %s)", settings.WHISPER_MODEL)
+            except Exception as e:
+                logger.error("Whisper init failed: %s", e)
+
+        if not stt_initialized:
+            logger.error("No STT engine available. Voice transcription disabled.")
+            success = False
+
+        return success
+
+    def on_wake(self, callback: Callable):
+        """Register callback for when wake word is detected."""
+        self._on_wake_callback = callback
+
+    def on_speech(self, callback: Callable):
+        """Register callback for when speech is transcribed."""
+        self._on_speech_callback = callback
+
+    def set_speaking(self, speaking: bool, open_followup: bool = True):
+        """Set whether JARVIS is speaking; open follow-up window to listen without wake word."""
+        self._is_speaking = speaking
+        if not speaking:
+            if open_followup:
+                self._in_followup_window = True
+                self._followup_start = time.time() + 0.5
+                logger.info("Follow-up window open (%.0fs to respond without wake word).",
+                            self.FOLLOWUP_WINDOW_SECONDS)
+            else:
+                self._in_followup_window = False
+                logger.info("Resuming wake-word mode (no follow-up window for browser-originated response).")
+
+    def request_activation(self) -> bool:
+        """Request one immediate microphone capture from an external trigger."""
+        if not self._is_listening:
+            logger.warning("Voice activation requested before listener was ready.")
+            return False
+
+        self._activation_requested = True
+        self._in_followup_window = False
+        self._followup_sustained_frames = 0
+        self._followup_max_amplitude = 0.0
+        logger.info("Voice activation requested from desktop hotkey.")
+        return True
+
+    def _consume_activation_request(self) -> bool:
+        """Return and clear a pending external activation request."""
+        if not self._activation_requested:
+            return False
+        self._activation_requested = False
+        return True
+
+    async def _capture_and_dispatch_speech(self, source: str, wake_delay: float = 0.0) -> bool:
+        """Record, transcribe, filter, and dispatch one utterance."""
+        if self._is_speaking:
+            logger.info("Ignoring %s activation while JARVIS is speaking.", source)
+            return False
+
+        if self._on_wake_callback:
+            self._on_wake_callback()
+
+        if wake_delay > 0:
+            await asyncio.sleep(wake_delay)
+
+        speech_audio = await self._record_speech()
+
+        if speech_audio is None:
+            logger.info("Recording too short or empty (%s).", source)
+            return False
+
+        text = await asyncio.to_thread(self._transcribe, speech_audio)
+        if not text or not text.strip():
+            logger.info("No speech detected after %s activation.", source)
+            return False
+
+        if not self._is_meaningful_speech(text):
+            logger.info("Filtered non-meaningful speech after %s activation.", source)
+            return False
+
+        logger.info("Transcribed (%s): '%s'", source, text)
+        if self._on_speech_callback:
+            await self._on_speech_callback(text)
+        return True
+
+    async def capture_reply(self, timeout: float = 10.0) -> str:
+        """Capture and transcribe one spoken reply (e.g. a yes/no confirmation).
+
+        Sets _capturing so the wake-word loop pauses its mic reads and this has
+        exclusive stream access. Returns "" on silence, timeout, or error.
+        """
+        if self._stream is None:
+            logger.warning("capture_reply called with no open audio stream.")
+            return ""
+        self._capturing = True
+        try:
+            audio = await asyncio.wait_for(self._record_speech(), timeout=timeout)
+        except Exception as e:
+            logger.debug("capture_reply did not get a usable reply: %s", e)
+            return ""
+        finally:
+            self._capturing = False
+        if audio is None:
+            return ""
+        return (await asyncio.to_thread(self._transcribe, audio)).strip()
+
+    async def listen_loop(self):
+        """Main listening loop: wait for wake word, record until silence, transcribe, callback."""
+        if not HAS_PYAUDIO or self._audio is None:
+            logger.error("Cannot start listening: PyAudio not available.")
+            return
+
+        self._is_listening = True
+        if self._wake_model is None:
+            logger.info("JARVIS is listening for desktop hotkey activation.")
+        else:
+            logger.info("JARVIS is listening... Say 'Hey JARVIS' or use the desktop hotkey.")
+
+        try:
+            self._stream = self._audio.open(
+                format=pyaudio.paInt16,
+                channels=settings.AUDIO_CHANNELS,
+                rate=settings.AUDIO_SAMPLE_RATE,
+                input=True,
+                frames_per_buffer=settings.AUDIO_CHUNK_SIZE,
+            )
+        except Exception as e:
+            logger.error("Failed to open audio stream: %s", e)
+            logger.info("Falling back to keyboard mode.")
+            await self.listen_keyboard()
+            return
+
+        try:
+            while self._is_listening:
+                # A confirmation capture has exclusive access to the mic; yield the
+                # stream so both readers don't steal each other's audio chunks.
+                if self._capturing:
+                    await asyncio.sleep(0.01)
+                    continue
+
+                if self._consume_activation_request():
+                    await self._capture_and_dispatch_speech("hotkey")
+                    await asyncio.sleep(0.01)
+                    continue
+
+                try:
+                    audio_data = await self._read_chunk()
+                except Exception:
+                    await asyncio.sleep(0.01)
+                    continue
+
+                audio_array = np.frombuffer(audio_data, dtype=np.int16)
+
+                if self._is_speaking:
+                    if await self._check_barge_in(audio_array):
+                        await self._capture_and_dispatch_speech("barge-in")
+                    await asyncio.sleep(0.01)
+                    continue
+
+                if self._in_followup_window:
+                    elapsed_followup = time.time() - self._followup_start
+                    if elapsed_followup > self.FOLLOWUP_WINDOW_SECONDS:
+                        self._in_followup_window = False
+                        logger.info("Follow-up window closed. Say 'Hey JARVIS' to activate.")
+                        continue
+
+                    amplitude = np.abs(audio_array).mean()
+
+                    if self._vad.is_speech(audio_array, settings.FOLLOWUP_SPEECH_SPIKE_THRESHOLD):
+                        self._followup_sustained_frames += 1
+                        self._followup_max_amplitude = max(self._followup_max_amplitude, amplitude)
+                    else:
+                        self._followup_sustained_frames = 0
+
+                    if self._followup_sustained_frames >= settings.FOLLOWUP_SUSTAINED_FRAMES:
+                        logger.info("Follow-up speech detected (sustained energy: %.0f). Recording...",
+                                    self._followup_max_amplitude)
+                        self._in_followup_window = False
+                        self._followup_sustained_frames = 0
+                        self._followup_max_amplitude = 0.0
+
+                        dispatched = await self._capture_and_dispatch_speech("follow-up")
+                        if not dispatched:
+                            self._in_followup_window = True
+                            self._followup_start = time.time()
+                            self._followup_sustained_frames = 0
+                            self._followup_max_amplitude = 0.0
+                            logger.info("Follow-up window re-opened after filtered speech.")
+
+                    await asyncio.sleep(0.01)
+                    continue
+
+                wake_detected = self._check_wake_word(audio_array)
+
+                if wake_detected:
+                    now = time.time()
+                    if now - self._last_wake_time < 3.0:
+                        logger.debug("Wake word debounced (too soon after last trigger).")
+                        continue
+                    self._last_wake_time = now
+
+                    logger.info("Wake word detected!")
+                    await self._capture_and_dispatch_speech("wake word", wake_delay=0.3)
+
+                await asyncio.sleep(0.01)
+
+        except Exception as e:
+            logger.error("Listen loop error: %s", e)
+        finally:
+            self._activation_requested = False
+            self._cleanup_stream()
+
+    def _get_transcription_hints(self) -> tuple[str | None, list[str] | None]:
+        """Build initial_prompt and hotwords from user profile for better transcription."""
+        if not settings.WHISPER_USE_LOCATION_HINTS:
+            return None, None
+
+        try:
+            user_profile = profile.get_profile()
+            city = user_profile.get("location_city", "").strip()
+            state = user_profile.get("location_state", "").strip()
+            nearby = user_profile.get("nearby_cities", [])
+            name = user_profile.get("name", "").strip()
+
+            prompt_parts = []
+            if city and state:
+                prompt_parts.append(f"The user lives in {city}, {state}.")
+            if nearby and isinstance(nearby, list):
+                nearby_str = ", ".join(nearby)
+                prompt_parts.append(f"Nearby cities include {nearby_str}.")
+
+            initial_prompt = " ".join(prompt_parts) if prompt_parts else None
+
+            hotwords = []
+            if city:
+                hotwords.append(city)
+            if state:
+                hotwords.append(state)
+            if nearby and isinstance(nearby, list):
+                hotwords.extend(nearby)
+            if name:
+                hotwords.append(name)
+
+            hotwords.extend(["Dallas", "Texas"])
+
+            seen = set()
+            unique_hotwords = []
+            for word in hotwords:
+                lower_word = word.lower()
+                if lower_word not in seen:
+                    seen.add(lower_word)
+                    unique_hotwords.append(word)
+
+            return initial_prompt, unique_hotwords if unique_hotwords else None
+
+        except Exception as e:
+            logger.warning("Failed to build transcription hints: %s", e)
+            return None, None
+
+    async def _check_barge_in(self, audio_chunk: np.ndarray) -> bool:
+        """While JARVIS speaks, stop playback when the user starts talking (opt-in)."""
+        if not settings.BARGE_IN_ENABLED or self.on_barge_in is None:
+            return False
+        if not self._vad.is_speech(audio_chunk, settings.FOLLOWUP_SPEECH_SPIKE_THRESHOLD):
+            self._barge_in_frames = 0
+            return False
+        self._barge_in_frames += 1
+        if self._barge_in_frames < settings.BARGE_IN_FRAMES:
+            return False
+        self._barge_in_frames = 0
+        logger.info("Barge-in: user started talking; stopping playback.")
+        self.on_barge_in()
+        self._is_speaking = False
+        return True
+
+    def _check_wake_word(self, audio_chunk: np.ndarray) -> bool:
+        """Check if the audio chunk contains the wake word."""
+        if self._wake_model is None:
+            return False
+
+        try:
+            prediction = self._wake_model.predict(audio_chunk)
+            for model_name, score in prediction.items():
+                if score > settings.WAKE_WORD_THRESHOLD:
+                    logger.debug("Wake word '%s' score: %.3f", model_name, score)
+                    self._wake_model.reset()
+                    return True
+            return False
+        except Exception as e:
+            logger.debug("Wake word check error: %s", e)
+            return False
+
+    async def _record_speech(self) -> np.ndarray | None:
+        """Record one utterance with exclusive access to the shared audio stream."""
+        async with self._stream_lock:
+            return await self._record_speech_locked()
+
+    async def _record_speech_locked(self) -> np.ndarray | None:
+        """Record speech until silence detected; return numpy array or None if too short."""
+        logger.info("Listening... (speak now, threshold=%d)", settings.SILENCE_THRESHOLD)
+        if self._stream is None:
+            logger.error("Cannot record speech: audio stream is not open.")
+            return None
+
+        frames = []
+        silence_start = None
+        has_heard_speech = False
+        recording_start = time.time()
+        max_amplitude_seen = 0
+        log_interval = 0  # For periodic amplitude logging
+
+        while True:
+            elapsed = time.time() - recording_start
+            if elapsed > settings.MAX_RECORDING_DURATION:
+                logger.info("Max recording duration reached (%.0fs).", elapsed)
+                break
+
+            try:
+                audio_data = await self._read_chunk()
+            except Exception:
+                break
+
+            audio_array = np.frombuffer(audio_data, dtype=np.int16)
+            frames.append(audio_array)
+
+            amplitude = np.abs(audio_array).mean()
+            max_amplitude_seen = max(max_amplitude_seen, amplitude)
+
+            log_interval += 1
+            if log_interval % 6 == 0:
+                logger.info(
+                    "  [mic] amplitude: %.0f (threshold: %d, max seen: %.0f, speech: %s)",
+                    amplitude, settings.SILENCE_THRESHOLD, max_amplitude_seen,
+                    "yes" if has_heard_speech else "no"
+                )
+
+            if self._vad.is_speech(audio_array, settings.SILENCE_THRESHOLD):
+                has_heard_speech = True
+                silence_start = None
+            else:
+                if has_heard_speech:
+                    if silence_start is None:
+                        silence_start = time.time()
+                    elif time.time() - silence_start > settings.SILENCE_DURATION:
+                        logger.info("End of speech detected (max amplitude was %.0f).", max_amplitude_seen)
+                        break
+                else:
+                    if elapsed > 8.0:
+                        logger.info(
+                            "No speech detected within 8 seconds. "
+                            "Max amplitude was %.0f (threshold is %d). "
+                            "If this keeps happening, lower SILENCE_THRESHOLD in settings.",
+                            max_amplitude_seen, settings.SILENCE_THRESHOLD
+                        )
+                        return None
+
+            await asyncio.sleep(0.005)
+
+        if not frames:
+            return None
+
+        combined = np.concatenate(frames)
+        duration = len(combined) / settings.AUDIO_SAMPLE_RATE
+        logger.info("Recorded %.1f seconds of audio (amplitude peaks detected: %s).",
+                     duration, "yes" if has_heard_speech else "no")
+
+        if duration < 0.5 or not has_heard_speech:
+            return None
+
+        return combined
+
+    async def _read_chunk(self) -> bytes:
+        """Read one microphone chunk without blocking the shared event loop.
+
+        In full mode the API server and this listener share one loop; a
+        blocking PyAudio read (~80 ms per chunk, continuously) would stall
+        every HTTP and WebSocket request.
+        """
+        stream = self._stream
+        if stream is None:
+            raise RuntimeError("Audio stream is not open")
+        return await asyncio.to_thread(stream.read, settings.AUDIO_CHUNK_SIZE, exception_on_overflow=False)
+
+    def _transcribe(self, audio: np.ndarray) -> str:
+        """Transcribe audio with the local STT engine, then the opt-in cloud fallback."""
+        text = self._transcribe_local(audio)
+        if not text.strip() and settings.STT_CLOUD_FALLBACK:
+            text = self._transcribe_cloud(audio)
+        return text
+
+    def _transcribe_local(self, audio: np.ndarray) -> str:
+        if self._stt_engine == "none":
+            logger.error("No local STT engine available.")
+            return ""
+
+        try:
+            audio_float = audio.astype(np.float32) / 32768.0
+
+            if self._stt_engine == "moonshine":
+                return self._transcribe_moonshine(audio_float)
+            elif self._stt_engine == "faster-whisper":
+                return self._transcribe_faster_whisper(audio_float)
+            elif self._stt_engine == "whisper":
+                return self._transcribe_whisper_original(audio_float)
+            else:
+                return ""
+
+        except Exception as e:
+            logger.error("Transcription error (%s): %s", self._stt_engine, e)
+            return ""
+
+    def _transcribe_cloud(self, audio: np.ndarray) -> str:
+        """Transcribe with OpenAI (STT_CLOUD_FALLBACK=true): sends the audio to OpenAI."""
+        if not settings.OPENAI_API_KEY:
+            return ""
+        import io
+        import wave
+
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(settings.AUDIO_SAMPLE_RATE)
+            wav.writeframes(audio.astype(np.int16).tobytes())
+        try:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=settings.OPENAI_API_KEY, max_retries=1, timeout=30.0)
+            result = client.audio.transcriptions.create(
+                model=settings.OPENAI_TRANSCRIBE_MODEL,
+                file=("speech.wav", buffer.getvalue(), "audio/wav"),
+            )
+        except Exception as e:
+            logger.error("Cloud transcription failed: %s", e)
+            return ""
+        text = str(getattr(result, "text", "") or "").strip()
+        logger.info("Cloud transcription (%s): '%s'", settings.OPENAI_TRANSCRIBE_MODEL, text[:80])
+        return text
+
+    def _transcribe_moonshine(self, audio_float: np.ndarray) -> str:
+        """Transcribe using Moonshine ONNX (low hallucination, real-time optimized)."""
+        try:
+            # Moonshine expects a 2D array with shape (1, num_samples) - batch dimension required
+            audio_input = audio_float[np.newaxis, :] if audio_float.ndim == 1 else audio_float
+            # generate() returns raw token IDs; decode them via the tokenizer
+            if self._moonshine_model is None or self._moonshine_tokenizer is None:
+                return ""
+            tokens = self._moonshine_model.generate(audio_input)
+            decoded = self._moonshine_tokenizer.decode_batch(tokens)
+            text = " ".join(decoded) if isinstance(decoded, list) else str(decoded)
+            return text.strip()
+        except Exception as e:
+            logger.error("Moonshine transcription error: %s", e)
+            # Fall back to faster-whisper if available
+            if self._whisper_model is not None:
+                logger.info("Falling back to faster-whisper for this transcription.")
+                return self._transcribe_faster_whisper(audio_float)
+            # Last resort: try loading faster-whisper on-demand
+            if HAS_WHISPER:
+                try:
+                    logger.info("Loading faster-whisper as emergency fallback...")
+                    from faster_whisper import WhisperModel
+                    self._whisper_model = WhisperModel(
+                        settings.WHISPER_MODEL, device="auto", compute_type="int8",
+                    )
+                    return self._transcribe_faster_whisper(audio_float)
+                except Exception as e2:
+                    logger.error("Emergency whisper fallback also failed: %s", e2)
+            return ""
+
+    def _transcribe_faster_whisper(self, audio_float: np.ndarray) -> str:
+        """Transcribe using faster-whisper with hallucination mitigation."""
+        initial_prompt, hotwords = self._get_transcription_hints()
+
+        transcribe_kwargs = {
+            "language": settings.WHISPER_LANGUAGE,
+            "beam_size": settings.WHISPER_BEAM_SIZE,
+            "vad_filter": settings.WHISPER_VAD_FILTER,
+            # Prevent hallucination loops: do not feed prior text back
+            "condition_on_previous_text": False,
+        }
+
+        if initial_prompt:
+            transcribe_kwargs["initial_prompt"] = initial_prompt
+
+        if hotwords:
+            transcribe_kwargs["hotwords"] = " ".join(hotwords)
+
+        if self._whisper_model is None:
+            return ""
+        segments, info = self._whisper_model.transcribe(audio_float, **transcribe_kwargs)
+        parts = []
+        for segment in segments:
+            # Skip segments where Whisper is uncertain there was speech
+            if hasattr(segment, "no_speech_prob") and segment.no_speech_prob > 0.6:
+                logger.debug(
+                    "Skipping low-confidence segment (no_speech_prob=%.2f): '%s'",
+                    segment.no_speech_prob, segment.text,
+                )
+                continue
+            seg_text = segment.text if isinstance(segment.text, str) else " ".join(segment.text)
+            parts.append(seg_text)
+        return " ".join(parts).strip()
+
+    def _transcribe_whisper_original(self, audio_float: np.ndarray) -> str:
+        """Transcribe using original OpenAI Whisper (fallback)."""
+        if self._whisper_model is None:
+            return ""
+        result = self._whisper_model.transcribe(
+            audio_float,
+            language=settings.WHISPER_LANGUAGE,
+            fp16=False,
+        )
+        return str(result.get("text", "")).strip()
+
+    def _is_meaningful_speech(self, text: str) -> bool:
+        """Filter out known Whisper hallucinations on silence/noise. Errs on side of inclusion."""
+        if not text or not text.strip():
+            return False
+
+        cleaned = text.strip().lower().rstrip(".!?, ")
+        if is_probable_noise(cleaned):
+            logger.info("Filtered probable STT noise: '%s'", text)
+            return False
+
+        hallucination_exact = {
+            "thank you for watching",
+            "thanks for watching",
+            "please subscribe",
+            "like and subscribe",
+            "subscribe",
+            "you",
+            "",
+        }
+        if cleaned in hallucination_exact:
+            logger.info("Filtered Whisper hallucination: '%s'", text)
+            return False
+
+        import re
+        phrases = [p.strip().rstrip(".!?,") for p in re.split(r'[.!?,]+', cleaned) if p.strip()]
+
+        # Detect repetitive hallucinations (same phrase repeated 3+ times)
+        if len(phrases) >= 3:
+            from collections import Counter
+            phrase_counts = Counter(phrases)
+            most_common_phrase, most_common_count = phrase_counts.most_common(1)[0]
+            # If one phrase makes up 75%+ of all phrases, it's a hallucination loop
+            if most_common_count >= 3 and most_common_count / len(phrases) >= 0.75:
+                logger.info(
+                    "Filtered repetitive hallucination ('%s' x%d): '%s'",
+                    most_common_phrase, most_common_count, text,
+                )
+                return False
+
+        if len(phrases) >= 4:
+            filler_words = {
+                "okay", "ok", "all right", "alright", "right", "um", "uh",
+                "hmm", "hm", "yeah", "yep", "so", "oh", "ah", "mhm",
+            }
+            filler_count = sum(1 for p in phrases if p in filler_words)
+            if filler_count == len(phrases):
+                logger.info("Filtered pure filler (%d phrases): '%s'", len(phrases), text)
+                return False
+
+        return True
+
+    async def listen_keyboard(self):
+        """Keyboard-activated listening (fallback): press Enter to record."""
+        logger.info("Keyboard mode: Press Enter to speak, Ctrl+C to quit.")
+        self._is_listening = True
+
+        while self._is_listening:
+            try:
+                await asyncio.get_event_loop().run_in_executor(
+                    None, input, "\n[Press Enter to speak] "
+                )
+
+                if self._on_wake_callback:
+                    self._on_wake_callback()
+
+                if not HAS_PYAUDIO or self._audio is None:
+                    logger.error("PyAudio not available.")
+                    continue
+
+                self._stream = self._audio.open(
+                    format=pyaudio.paInt16,
+                    channels=settings.AUDIO_CHANNELS,
+                    rate=settings.AUDIO_SAMPLE_RATE,
+                    input=True,
+                    frames_per_buffer=settings.AUDIO_CHUNK_SIZE,
+                )
+
+                speech_audio = await self._record_speech()
+                self._cleanup_stream()
+
+                if speech_audio is not None:
+                    text = await asyncio.to_thread(self._transcribe, speech_audio)
+                    if text and text.strip():
+                        logger.info("You said: '%s'", text)
+                        if self._on_speech_callback:
+                            await self._on_speech_callback(text)
+
+            except (KeyboardInterrupt, EOFError):
+                break
+            except Exception as e:
+                logger.error("Keyboard listen error: %s", e)
+
+    def _cleanup_stream(self):
+        """Close and reset audio stream."""  # Simple cleanup
+        if self._stream is not None:
+            try:
+                self._stream.stop_stream()
+                self._stream.close()
+            except Exception as e:
+                logger.debug("Audio stream cleanup failed: %s", e)
+            self._stream = None
+
+    def stop(self):
+        """Stop the listening loop."""
+        self._is_listening = False
+        self._activation_requested = False
+        self._cleanup_stream()
+
+    def cleanup(self):
+        """Terminate listener and close audio resources."""
+        self.stop()
+        if self._audio is not None:
+            with contextlib.suppress(Exception):
+                self._audio.terminate()

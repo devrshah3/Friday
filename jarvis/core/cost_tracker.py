@@ -1,0 +1,222 @@
+"""Persistent logging of API usage costs to JSON files."""
+import calendar
+import json
+import logging
+import os
+import threading
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any, cast
+
+from jarvis.config import settings
+
+logger = logging.getLogger("jarvis.cost_tracker")
+
+# Serializes the read-modify-write in log_request so a threaded or executor-based
+# caller cannot lose updates. asyncio's single thread is already safe, but this
+# makes the invariant explicit and future-proof.
+_write_lock = threading.Lock()
+
+def _cost_log_dir() -> Path:
+    """Get the cost log directory from settings (evaluated at call time for testability)."""
+    return Path(settings.COST_LOG_DIR)
+
+
+def _today_file() -> Path:
+    """Get path to today's cost log file."""
+
+    return _cost_log_dir() / f"{date.today().isoformat()}.json"
+
+
+def _load_day(file_path: Path) -> dict[str, Any]:
+    """Load a day's cost data from file."""
+
+    if file_path.exists():
+        try:
+            return cast(dict[str, Any], json.loads(file_path.read_text()))
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Failed to read cost log %s: %s", file_path, e)
+    return {
+        "date": file_path.stem,
+        "total_cost_usd": 0.0,
+        "total_requests": 0,
+        "total_input_tokens": 0,
+        "total_output_tokens": 0,
+        "total_cache_read_tokens": 0,
+        "total_cache_creation_tokens": 0,
+        "by_tier": {"fast": 0, "brain": 0, "deep": 0, "ollama": 0},
+        "by_model": {},
+        "requests": [],
+    }
+
+
+def _save_day(file_path: Path, data: dict):
+    """Save a day's cost data to disk atomically (temp file + rename).
+
+    A direct write_text can leave a truncated/corrupt JSON file if the process
+    is killed mid-write; writing to a temp file and os.replace()-ing it is atomic.
+    """
+    try:
+        tmp_path = file_path.with_name(f"{file_path.name}.{os.getpid()}.tmp")
+        tmp_path.write_text(json.dumps(data, indent=2))
+        os.replace(tmp_path, file_path)
+    except OSError as e:
+        logger.error("Failed to write cost log %s: %s", file_path, e)
+
+
+def log_request(
+    model: str,
+    tier: str,
+    input_tokens: int,
+    output_tokens: int,
+    cache_read_tokens: int = 0,
+    cache_creation_tokens: int = 0,
+    cost_usd: float = 0.0,
+    elapsed_seconds: float = 0.0,
+    user_input_preview: str = "",
+):
+    """Log a single API request to the daily cost file."""
+    with _write_lock:
+        log_file = _today_file()
+        data = _load_day(log_file)
+
+        data["total_cost_usd"] = round(data["total_cost_usd"] + cost_usd, 6)
+        data["total_requests"] += 1
+        data["total_input_tokens"] += input_tokens
+        data["total_output_tokens"] += output_tokens
+        data["total_cache_read_tokens"] = data.get("total_cache_read_tokens", 0) + cache_read_tokens
+        data["total_cache_creation_tokens"] = data.get("total_cache_creation_tokens", 0) + cache_creation_tokens
+
+        data.setdefault("by_tier", {})[tier] = data.get("by_tier", {}).get(tier, 0) + 1
+        data.setdefault("by_model", {})[model] = data.get("by_model", {}).get(model, 0) + 1
+
+        data.setdefault("requests", []).append({
+            "time": datetime.now().isoformat(timespec="seconds"),
+            "model": model,
+            "tier": tier,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cache_read": cache_read_tokens,
+            "cache_write": cache_creation_tokens,
+            "cost_usd": round(cost_usd, 6),
+            "elapsed_s": round(elapsed_seconds, 2),
+            "preview": user_input_preview[:80],
+        })
+        if len(data["requests"]) > 500:
+            data["requests"] = data["requests"][-500:]
+        _save_day(log_file, data)
+
+
+def get_today_summary() -> dict:
+    """Get today's cost summary."""
+    data = _load_day(_today_file())
+    return {
+        "date": data["date"],
+        "total_cost_usd": data["total_cost_usd"],
+        "total_requests": data["total_requests"],
+        "total_input_tokens": data["total_input_tokens"],
+        "total_output_tokens": data["total_output_tokens"],
+        "total_cache_read_tokens": data.get("total_cache_read_tokens", 0),
+        "total_cache_creation_tokens": data.get("total_cache_creation_tokens", 0),
+        "by_tier": data["by_tier"],
+        "by_model": data.get("by_model", {}),
+    }
+
+
+def get_month_summary() -> dict:
+    """Get current month's cost summary."""
+    today = date.today()
+    month_prefix = today.strftime("%Y-%m")
+    total_cost = 0.0
+    total_requests = 0
+    days_active = 0
+
+    for log_file in sorted(_cost_log_dir().glob(f"{month_prefix}-*.json")):
+        data = _load_day(log_file)
+        total_cost += data.get("total_cost_usd", 0.0)
+        total_requests += data.get("total_requests", 0)
+        if data.get("total_requests", 0) > 0:
+            days_active += 1
+
+    avg_daily = total_cost / days_active if days_active > 0 else 0.0
+
+    # Project from the actual calendar pace (spend so far / days elapsed x days in
+    # month), NOT avg-over-active-days x 30: the latter wildly over-projects for a
+    # user who only runs Jarvis on some days.
+    days_in_month = calendar.monthrange(today.year, today.month)[1]
+    days_elapsed = today.day
+    projected_monthly = (total_cost / days_elapsed) * days_in_month if days_elapsed > 0 else 0.0
+
+    return {
+        "month": month_prefix,
+        "total_cost_usd": round(total_cost, 4),
+        "total_requests": total_requests,
+        "days_active": days_active,
+        "avg_daily_cost_usd": round(avg_daily, 4),
+        "projected_monthly_usd": round(projected_monthly, 2),
+    }
+
+
+def get_cost_insights(limit: int = 12) -> dict[str, Any]:
+    """Return richer cost analytics for dashboard and routing decisions."""
+    data = _load_day(_today_file())
+    requests = data.get("requests", [])[-max(1, min(limit, 100)):]
+    total_cache_read = int(data.get("total_cache_read_tokens", 0) or 0)
+    total_cache_write = int(data.get("total_cache_creation_tokens", 0) or 0)
+    total_input = int(data.get("total_input_tokens", 0) or 0)
+    cache_total = total_cache_read + total_cache_write
+    cache_hit_ratio = total_cache_read / cache_total if cache_total else 0.0
+
+    by_tier_cost: dict[str, float] = {}
+    for req in data.get("requests", []):
+        tier = str(req.get("tier", "unknown"))
+        by_tier_cost[tier] = by_tier_cost.get(tier, 0.0) + float(req.get("cost_usd", 0.0) or 0.0)
+
+    recommendations: list[str] = []
+    if total_cache_write > total_cache_read:
+        recommendations.append("Prompt cache writes exceed reads today; keep the static prompt and tool schemas stable between turns.")
+    if by_tier_cost.get("brain", 0.0) > by_tier_cost.get("fast", 0.0) * 2:
+        recommendations.append("Brain-tier spend is dominant; route routine lookups through local tools or Haiku.")
+    if total_input > 20000:
+        recommendations.append("Input tokens are high; compact older turns and trim stale tool results.")
+    if not recommendations:
+        recommendations.append("Cost profile looks healthy; prompt caching and tier routing are helping.")
+
+    return {
+        "today": get_today_summary(),
+        "month": get_month_summary(),
+        "cache_hit_ratio": round(cache_hit_ratio, 3),
+        "cache_read_tokens": total_cache_read,
+        "cache_write_tokens": total_cache_write,
+        "by_tier_cost_usd": {k: round(v, 6) for k, v in by_tier_cost.items()},
+        "recent_requests": requests,
+        "recommendations": recommendations,
+        "budget": {
+            "daily_alert_usd": settings.COST_DAILY_ALERT,
+            "daily_hard_limit_usd": settings.COST_DAILY_HARD_LIMIT,
+            "monthly_alert_usd": settings.COST_MONTHLY_ALERT,
+            "monthly_hard_limit_usd": settings.COST_MONTHLY_HARD_LIMIT,
+            "cost_mode": settings.COST_MODE,
+        },
+    }
+
+
+def hard_limit_status() -> dict[str, Any]:
+    """Return current hard-budget status for routing and UI."""
+    today = get_today_summary()
+    month = get_month_summary()
+    daily_limit = float(getattr(settings, "COST_DAILY_HARD_LIMIT", 0) or 0)
+    monthly_limit = float(getattr(settings, "COST_MONTHLY_HARD_LIMIT", 0) or 0)
+    daily_spend = float(today.get("total_cost_usd", 0.0) or 0.0)
+    monthly_spend = float(month.get("total_cost_usd", 0.0) or 0.0)
+    daily_blocked = daily_limit > 0 and daily_spend >= daily_limit
+    monthly_blocked = monthly_limit > 0 and monthly_spend >= monthly_limit
+    return {
+        "blocked": daily_blocked or monthly_blocked,
+        "daily_blocked": daily_blocked,
+        "monthly_blocked": monthly_blocked,
+        "daily_spend_usd": daily_spend,
+        "monthly_spend_usd": monthly_spend,
+        "daily_hard_limit_usd": daily_limit,
+        "monthly_hard_limit_usd": monthly_limit,
+    }

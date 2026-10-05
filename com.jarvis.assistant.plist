@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- JARVIS Auto-Start Service Template -->
+    <!-- Render/install with: python -m jarvis.core.app_lifecycle install-agent -->
+    <!-- Do not load this template directly; __JARVIS_HOME__ is replaced by the installer. -->
+
+    <key>Label</key>
+    <string>com.jarvis.assistant</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>__JARVIS_HOME__/start.sh</string>
+        <string>full</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__JARVIS_HOME__</string>
+
+    <!-- Start automatically when the user logs in -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart if JARVIS crashes (wait 10s before restart) -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Log stdout and stderr for debugging -->
+    <key>StandardOutPath</key>
+    <string>__JARVIS_HOME__/data/logs/launchd-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>__JARVIS_HOME__/data/logs/launchd-stderr.log</string>
+
+    <!-- Environment variables (API key loaded from .env by start.sh) -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>__HOME__</string>
+        <key>JARVIS_HOME</key>
+        <string>__JARVIS_HOME__</string>
+    </dict>
+
+    <!-- Limit resource usage -->
+    <key>ProcessType</key>
+    <string>Standard</string>
+</dict>
+</plist>

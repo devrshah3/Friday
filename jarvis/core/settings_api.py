@@ -1,0 +1,480 @@
+"""Settings API endpoints for JARVIS configuration management.
+
+Provides REST endpoints for querying and updating JARVIS settings, testing
+integrations (OpenAI or Anthropic API, Ollama), and checking system status.
+
+All endpoints validate input and reject attempts to execute arbitrary code.
+Only safe configuration keys are allowed for updates.
+"""
+import logging
+import os
+import time
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Body, HTTPException
+from pydantic import BaseModel, Field
+
+from jarvis.config import settings
+from jarvis.core.ollama import list_ollama_models
+from jarvis.core.providers import tier_specs
+from jarvis.core.secrets import SecretStoreError, delete_secret, get_secret_backend_status, set_secret
+
+logger = logging.getLogger("jarvis.settings_api")
+
+settings_router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+# Safe configuration keys that can be updated via API
+SAFE_CONFIG_KEYS = {
+    "LLM_PROVIDER",
+    "OPENAI_API_KEY",
+    "OPENAI_FAST_MODEL",
+    "OPENAI_BRAIN_MODEL",
+    "OPENAI_DEEP_MODEL",
+    "OPENAI_FAST_EFFORT",
+    "OPENAI_BRAIN_EFFORT",
+    "OPENAI_DEEP_EFFORT",
+    "JARVIS_CODING_AGENT",
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_ALLOWED_USER_IDS",
+    "IMESSAGE_ALLOWED_HANDLES",
+    "ANTHROPIC_API_KEY",
+    "GOOGLE_CALENDAR_CLIENT_ID",
+    "GOOGLE_CALENDAR_CLIENT_SECRET",
+    "OUTLOOK_CALENDAR_CLIENT_ID",
+    "OUTLOOK_CALENDAR_CLIENT_SECRET",
+    "CLAUDE_DEFAULT_TIER",
+    "CLAUDE_FAST_MODEL",
+    "CLAUDE_BRAIN_MODEL",
+    "CLAUDE_DEEP_MODEL",
+    "COST_DAILY_ALERT",
+    "COST_MONTHLY_ALERT",
+    "COST_DAILY_HARD_LIMIT",
+    "COST_MONTHLY_HARD_LIMIT",
+    "COST_MODE",
+    "COST_DEEP_PREMIUM_LIMIT",
+    "LOCAL_FIRST_ENABLED",
+    "MEMORY_ENABLED",
+    "PRIVACY_MODE_DEFAULT",
+    "ANTHROPIC_LAZY_HEALTHCHECK",
+    "ANTHROPIC_CACHE_TOOLS",
+    "ANTHROPIC_PROMPT_CACHE_TTL",
+    "ANTHROPIC_BATCH_FOR_BACKGROUND",
+    "WORKFLOW_SCHEDULER_ENABLED",
+    "CONTEXT_RECENT_MESSAGES",
+    "CONTEXT_SUMMARY_MAX_CHARS",
+    "TTS_ENGINE",
+    "TTS_VOICE",
+    "TTS_SPEED",
+    "STT_ENGINE",
+    "OLLAMA_BASE_URL",
+    "OLLAMA_MODEL",
+    "OLLAMA_FAST_MODEL",
+    "PREFER_CLAUDE",
+    "API_HOST",
+    "API_PORT",
+    "UI_PORT",
+}
+
+SECRET_KEYS = {
+    "OPENAI_API_KEY",
+    "TELEGRAM_BOT_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "GOOGLE_CALENDAR_CLIENT_SECRET",
+    "OUTLOOK_CALENDAR_CLIENT_SECRET",
+}
+
+# .env keys whose settings attribute has a different name.
+_SETTINGS_ATTR = {"JARVIS_CODING_AGENT": "CODING_AGENT"}
+
+_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+
+# Start time for uptime calculation
+_startup_time = time.time()
+
+
+class TestApiRequest(BaseModel):
+    api_key: str | None = Field(default=None, max_length=512)
+    provider: str | None = Field(default=None, pattern="^(openai|anthropic)$")
+
+
+class TestOllamaRequest(BaseModel):
+    base_url: str | None = Field(default=None, max_length=300)
+
+
+def _normalize_updates(raw_updates: dict[str, Any]) -> dict[str, Any]:
+    """Validate and normalize settings values before writing them to .env."""
+    normalized: dict[str, Any] = {}
+
+    for key, value in raw_updates.items():
+        if value is None:
+            value = ""
+
+        if isinstance(value, str):
+            value = value.strip()
+            if "\n" in value or "\r" in value or "\x00" in value:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid value for {key}: newlines and NUL bytes are not allowed.",
+                )
+
+        if key in {"API_PORT", "UI_PORT"}:
+            try:
+                port = int(value)
+            except (TypeError, ValueError) as err:
+                raise HTTPException(status_code=400, detail=f"{key} must be a port number.") from err
+            if not 1 <= port <= 65535:
+                raise HTTPException(status_code=400, detail=f"{key} must be between 1 and 65535.")
+            normalized[key] = port
+        elif key in {
+            "COST_DAILY_ALERT", "COST_MONTHLY_ALERT", "COST_DAILY_HARD_LIMIT",
+            "COST_MONTHLY_HARD_LIMIT", "COST_DEEP_PREMIUM_LIMIT",
+        }:
+            try:
+                amount = float(value)
+            except (TypeError, ValueError) as err:
+                raise HTTPException(status_code=400, detail=f"{key} must be numeric.") from err
+            if amount < 0:
+                raise HTTPException(status_code=400, detail=f"{key} cannot be negative.")
+            normalized[key] = amount
+        elif key == "TTS_SPEED":
+            try:
+                speed = float(value)
+            except (TypeError, ValueError) as err:
+                raise HTTPException(status_code=400, detail="TTS_SPEED must be numeric.") from err
+            if not 0.5 <= speed <= 2.0:
+                raise HTTPException(status_code=400, detail="TTS_SPEED must be between 0.5 and 2.0.")
+            normalized[key] = speed
+        elif key in {"CONTEXT_RECENT_MESSAGES", "CONTEXT_SUMMARY_MAX_CHARS"}:
+            try:
+                count = int(value)
+            except (TypeError, ValueError) as err:
+                raise HTTPException(status_code=400, detail=f"{key} must be an integer.") from err
+            if count < 1:
+                raise HTTPException(status_code=400, detail=f"{key} must be positive.")
+            normalized[key] = count
+        elif key == "COST_MODE":
+            mode = str(value).lower()
+            if mode not in {"economy", "balanced", "power"}:
+                raise HTTPException(status_code=400, detail="COST_MODE must be economy, balanced, or power.")
+            normalized[key] = mode
+        elif key == "LLM_PROVIDER":
+            provider = str(value).lower()
+            if provider not in {"openai", "anthropic", "local"}:
+                raise HTTPException(status_code=400, detail="LLM_PROVIDER must be openai, anthropic, or local.")
+            normalized[key] = provider
+        elif key in {"OPENAI_FAST_EFFORT", "OPENAI_BRAIN_EFFORT", "OPENAI_DEEP_EFFORT"}:
+            effort = str(value).lower()
+            if effort not in _REASONING_EFFORTS:
+                raise HTTPException(status_code=400, detail=f"{key} must be one of {sorted(_REASONING_EFFORTS)}.")
+            normalized[key] = effort
+        elif key == "JARVIS_CODING_AGENT":
+            agent = str(value).lower()
+            if agent not in {"auto", "codex", "claude"}:
+                raise HTTPException(status_code=400, detail="JARVIS_CODING_AGENT must be auto, codex, or claude.")
+            normalized[key] = agent
+        elif key == "ANTHROPIC_PROMPT_CACHE_TTL":
+            ttl = str(value).lower()
+            if ttl not in {"5m", "1h"}:
+                raise HTTPException(status_code=400, detail="ANTHROPIC_PROMPT_CACHE_TTL must be 5m or 1h.")
+            normalized[key] = ttl
+        elif key in {
+            "PREFER_CLAUDE", "LOCAL_FIRST_ENABLED", "MEMORY_ENABLED",
+            "PRIVACY_MODE_DEFAULT", "ANTHROPIC_LAZY_HEALTHCHECK",
+            "ANTHROPIC_CACHE_TOOLS", "ANTHROPIC_BATCH_FOR_BACKGROUND",
+            "WORKFLOW_SCHEDULER_ENABLED",
+        }:
+            if isinstance(value, bool):
+                normalized[key] = value
+            elif str(value).lower() in {"true", "1", "yes", "on"}:
+                normalized[key] = True
+            elif str(value).lower() in {"false", "0", "no", "off"}:
+                normalized[key] = False
+            else:
+                raise HTTPException(status_code=400, detail=f"{key} must be boolean.")
+        else:
+            normalized[key] = value
+
+    return normalized
+
+
+def _env_value(value: Any) -> str:
+    """Serialize a validated value for a simple KEY=value .env file."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+@settings_router.get("")
+async def get_settings() -> dict:
+    """
+    Get current JARVIS settings (safe subset, no API keys).
+
+    Returns:
+        Dict with model tiers, cost thresholds, voice config, feature flags
+    """
+    active = tier_specs()
+    return {
+        "provider": settings.LLM_PROVIDER,
+        "models": {
+            "fast": active["fast"].model,
+            "brain": active["brain"].model,
+            "deep": active["deep"].model,
+            "default": settings.CLAUDE_DEFAULT_TIER,
+        },
+        "openai": {
+            "configured": bool(settings.OPENAI_API_KEY),
+            "fast_model": settings.OPENAI_FAST_MODEL,
+            "brain_model": settings.OPENAI_BRAIN_MODEL,
+            "deep_model": settings.OPENAI_DEEP_MODEL,
+            "fast_effort": settings.OPENAI_FAST_EFFORT,
+            "brain_effort": settings.OPENAI_BRAIN_EFFORT,
+            "deep_effort": settings.OPENAI_DEEP_EFFORT,
+        },
+        "anthropic": {
+            "configured": bool(settings.ANTHROPIC_API_KEY),
+            "fast_model": settings.CLAUDE_FAST_MODEL,
+            "brain_model": settings.CLAUDE_BRAIN_MODEL,
+            "deep_model": settings.CLAUDE_DEEP_MODEL,
+        },
+        "coding_agent": settings.CODING_AGENT,
+        "costs": {
+            "daily_alert_usd": settings.COST_DAILY_ALERT,
+            "monthly_alert_usd": settings.COST_MONTHLY_ALERT,
+            "daily_hard_limit_usd": settings.COST_DAILY_HARD_LIMIT,
+            "monthly_hard_limit_usd": settings.COST_MONTHLY_HARD_LIMIT,
+            "mode": settings.COST_MODE,
+            "deep_premium_limit_usd": settings.COST_DEEP_PREMIUM_LIMIT,
+        },
+        "cost_controls": {
+            "local_first_enabled": settings.LOCAL_FIRST_ENABLED,
+            "memory_enabled": settings.MEMORY_ENABLED,
+            "privacy_mode_default": settings.PRIVACY_MODE_DEFAULT,
+            "lazy_healthcheck": settings.ANTHROPIC_LAZY_HEALTHCHECK,
+            "cache_tools": settings.ANTHROPIC_CACHE_TOOLS,
+            "prompt_cache_ttl": settings.ANTHROPIC_PROMPT_CACHE_TTL,
+            "batch_for_background": settings.ANTHROPIC_BATCH_FOR_BACKGROUND,
+            "workflow_scheduler_enabled": settings.WORKFLOW_SCHEDULER_ENABLED,
+            "context_recent_messages": settings.CONTEXT_RECENT_MESSAGES,
+            "context_summary_max_chars": settings.CONTEXT_SUMMARY_MAX_CHARS,
+        },
+        "voice": {
+            "tts_engine": settings.TTS_ENGINE,
+            "tts_voice": settings.TTS_VOICE,
+            "tts_speed": settings.TTS_SPEED,
+            "stt_engine": settings.STT_ENGINE,
+        },
+        "integrations": {
+            "prefer_claude": settings.PREFER_CLAUDE,
+            "ollama_url": settings.OLLAMA_BASE_URL,
+            "ollama_model": settings.OLLAMA_MODEL,
+            "ollama_fast_model": settings.OLLAMA_FAST_MODEL,
+            "google_calendar_configured": bool(settings.GOOGLE_CALENDAR_CLIENT_ID),
+            "outlook_calendar_configured": bool(settings.OUTLOOK_CALENDAR_CLIENT_ID),
+        },
+        "secrets": get_secret_backend_status(),
+    }
+
+
+@settings_router.post("/test-api")
+async def test_cloud_api(
+    body: Annotated[TestApiRequest | None, Body()] = None,
+) -> dict:
+    """
+    Test whether the active cloud provider's API key is valid.
+
+    Lists models, which costs nothing. Uses the stored key when none is given.
+
+    Returns:
+        Dict with valid (bool), provider (str), model (str), error (str|null)
+    """
+    provider = (body.provider if body and body.provider else settings.LLM_PROVIDER).lower()
+    stored = settings.ANTHROPIC_API_KEY if provider == "anthropic" else settings.OPENAI_API_KEY
+    key_to_test = (body.api_key if body else None) or stored
+
+    if not key_to_test:
+        return {"valid": False, "provider": provider, "model": None, "error": "No API key provided"}
+
+    try:
+        if provider == "anthropic":
+            import anthropic
+
+            await anthropic.AsyncAnthropic(api_key=key_to_test, max_retries=0).models.list(limit=1)
+            model = settings.CLAUDE_BRAIN_MODEL
+        else:
+            from openai import AsyncOpenAI
+
+            await AsyncOpenAI(api_key=key_to_test, max_retries=0).models.list()
+            model = settings.OPENAI_BRAIN_MODEL
+        return {"valid": True, "provider": provider, "model": model, "error": None}
+    except Exception as e:
+        logger.warning("%s API test failed: %s", provider, str(e))
+        return {"valid": False, "provider": provider, "model": None, "error": str(e)}
+
+
+@settings_router.post("/test-ollama")
+async def test_ollama(
+    body: Annotated[TestOllamaRequest | None, Body()] = None,
+) -> dict:
+    """
+    Test if Ollama is reachable and list available models.
+
+    Returns:
+        Dict with valid (bool), models (list[str]), error (str|null)
+    """
+    base_url = ((body.base_url if body else None) or settings.OLLAMA_BASE_URL).rstrip("/")
+
+    try:
+        models = await list_ollama_models(base_url, timeout=5.0)
+        return {
+            "valid": True,
+            "models": models,
+            "error": None,
+        }
+    except Exception as e:
+        logger.warning("Ollama test failed: %s", str(e))
+        return {
+            "valid": False,
+            "models": [],
+            "error": str(e),
+        }
+
+
+@settings_router.get("/status")
+async def get_status() -> dict:
+    """
+    Get integration status and system info.
+
+    Returns:
+        Dict with anthropic (bool), ollama (bool), tts (str), stt (str),
+        memory_count (int), uptime_seconds (float)
+    """
+    anthropic_valid = bool(settings.ANTHROPIC_API_KEY)
+    openai_valid = bool(settings.OPENAI_API_KEY)
+
+    # Test Ollama
+    ollama_valid = False
+    try:
+        await list_ollama_models(settings.OLLAMA_BASE_URL, timeout=2.0)
+        ollama_valid = True
+    except Exception as e:
+        logger.debug("Ollama status check failed: %s", e)
+
+    # Count memory entries (approximate)
+    memory_count = 0
+    try:
+        if settings.MEMORY_DIR.exists():
+            memory_count = len(list(settings.MEMORY_DIR.glob("*")))
+    except Exception as e:
+        logger.debug("Memory directory count failed: %s", e)
+
+    uptime = time.time() - _startup_time
+
+    return {
+        "provider": settings.LLM_PROVIDER,
+        "openai": openai_valid,
+        "anthropic": anthropic_valid,
+        "ollama": ollama_valid,
+        "tts": settings.TTS_ENGINE,
+        "stt": settings.STT_ENGINE,
+        "memory_count": memory_count,
+        "uptime_seconds": round(uptime, 1),
+        "secrets": get_secret_backend_status(),
+    }
+
+
+@settings_router.post("/update")
+async def update_settings(
+    body: Annotated[dict[str, Any] | None, Body()] = None,
+) -> dict:
+    """
+    Update JARVIS settings. Non-secret values are written to .env; secrets are
+    stored in the secure backend (macOS Keychain via keyring when available).
+
+    Args:
+        updates: Dict of safe configuration keys to update
+
+    Returns:
+        Dict with success (bool), updated (list[str]), error (str|null)
+    """
+    body = body or {}
+    updates = body.get("updates", body)
+
+    if not updates:
+        return {"success": True, "updated": [], "error": None}
+
+    # Validate that only safe keys are being updated
+    unsafe_keys = set(updates.keys()) - SAFE_CONFIG_KEYS
+    if unsafe_keys:
+        logger.warning("Attempt to update unsafe keys: %s", unsafe_keys)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot update these keys: {unsafe_keys}",
+        )
+
+    updates = _normalize_updates(updates)
+
+    try:
+        env_path = settings.JARVIS_HOME / ".env"
+
+        # Read existing .env
+        env_content = {}
+        if env_path.exists():
+            with open(env_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" in line:
+                        key, value = line.split("=", 1)
+                        env_content[key.strip()] = value.strip()
+
+        # Update with new values
+        updated = []
+        for key, value in updates.items():
+            attr = _SETTINGS_ATTR.get(key, key)
+            if key in SECRET_KEYS:
+                secret_value = str(value)
+                env_content.pop(key, None)
+                if secret_value:
+                    set_secret(key, secret_value)
+                    os.environ[key] = secret_value
+                else:
+                    delete_secret(key)
+                    os.environ.pop(key, None)
+                if hasattr(settings, attr):
+                    setattr(settings, attr, secret_value)
+            else:
+                env_content[key] = _env_value(value)
+                os.environ[key] = _env_value(value)
+                if hasattr(settings, attr):
+                    setattr(settings, attr, value)
+            updated.append(key)
+
+        # Write back to .env
+        with open(env_path, "w", encoding="utf-8") as f:
+            f.write("# JARVIS Configuration\n")
+            f.write("# Auto-generated; edits may be overwritten\n")
+            f.write("# Secrets such as OPENAI_API_KEY are stored in macOS Keychain.\n\n")
+            for key, value in sorted(env_content.items()):
+                f.write(f"{key}={value}\n")
+
+        logger.info("Settings updated: %s", updated)
+
+        return {
+            "success": True,
+            "updated": updated,
+            "error": None,
+        }
+
+    except SecretStoreError as e:
+        logger.error("Secret update failed: %s", str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update secret: {str(e)}",
+        ) from e
+    except Exception as e:
+        logger.error("Settings update failed: %s", str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update settings: {str(e)}",
+        ) from e

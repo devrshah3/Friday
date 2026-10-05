@@ -1,0 +1,338 @@
+"""
+JARVIS Task Planner
+
+Uses Claude to decompose complex user requests into ordered subtask chains.
+Simple requests pass through unchanged; complex multi-step requests get
+broken into a plan that the executor runs step by step.
+
+The planner makes two key decisions:
+1. Should this request be decomposed? (complexity check)
+2. If yes, what are the subtasks, in what order, with what dependencies?
+
+Complexity heuristics (checked BEFORE calling the LLM):
+- Multiple verbs / action phrases ("search X, then open Y, and email Z")
+- Explicit sequencing words ("first", "then", "after that", "finally")
+- Compound requests joined by "and" with different action types
+- Requests mentioning multiple tools or domains (browser + email + file)
+
+If heuristics are ambiguous, the planner asks Claude (fast tier) to decide.
+This keeps costs low: simple requests never touch the planner LLM at all.
+"""
+import logging
+import re
+from collections.abc import Callable
+from typing import Any
+
+from jarvis.agent.planning_session import PlanningSession, detect_planning_mode
+from jarvis.agent.schemas import COMPLEXITY_SCHEMA, PLAN_SCHEMA
+from jarvis.agent.task_tracker import TaskPlan, TaskTracker
+from jarvis.agent.templates import fill_template, get_template
+
+logger = logging.getLogger("jarvis.agent.planner")
+
+MAX_SUBTASKS = 8
+
+_SEQUENCE_MARKERS = [
+    r"\bthen\b",
+    r"\bafter that\b",
+    r"\bnext\b",
+    r"\bfinally\b",
+    r"\bfirst\b",
+    r"\bonce (?:you|that|it)'?s? (?:done|finished|complete)",
+    r"\bstep \d",
+    r"\band then\b",
+    r"\bfollowed by\b",
+    r"\bbefore you\b",
+    r"\bwhen (?:you're|that's) done\b",
+]
+
+_ACTION_VERBS = [
+    "search", "find", "look up", "research",
+    "open", "navigate", "browse", "go to",
+    "send", "email", "message", "notify",
+    "create", "write", "draft", "compose",
+    "save", "download", "export",
+    "read", "check", "review", "summarize",
+    "run", "execute", "install",
+    "set", "change", "update", "modify",
+    "schedule", "remind", "add to calendar",
+]
+
+_PLANNING_SYSTEM_PROMPT = f"""\
+<role>Task planning module for JARVIS, a personal AI assistant.</role>
+
+<purpose>
+Given a user request, determine if it requires multiple distinct steps, and if so, break it into an ordered list of subtasks that specialized agents can execute.
+</purpose>
+
+<planning_rules>
+Each subtask must be a single, clear action that can be executed independently (given the results of prior steps).
+Subtasks must be in execution order.
+Keep subtask titles short (under 60 chars) and descriptions actionable.
+Do NOT decompose simple, single-action requests. Return needs_decomposition: false.
+Maximum {MAX_SUBTASKS} subtasks per plan.
+If a step depends on the output of a previous step, state the dependency explicitly in the description.
+Prefer fewer subtasks. If the request can be done in 2 steps, do not use 4.
+</planning_rules>
+
+<decomposition_examples>
+Request: "Search for the latest Premier League scores and email them to me"
+Plan: 2 subtasks. (1) Search web for Premier League scores. (2) Compose and send email with the scores from step 1.
+
+Request: "What's the weather like?"
+Result: needs_decomposition: false. Single tool call.
+
+Request: "Open Safari"
+Result: needs_decomposition: false. Single action.
+</decomposition_examples>
+
+<mistakes_to_avoid>
+Do NOT create a subtask for "summarize results"; the system does this automatically after all steps complete.
+Do NOT create subtasks that duplicate each other (e.g., "search web" and "look up information" for the same query).
+Do NOT include greeting or sign-off subtasks. Focus on actions only.
+</mistakes_to_avoid>
+
+<response_format>
+For a simple request, set needs_decomposition to false, explain why in reason, and leave goal_summary empty and subtasks empty.
+For a complex request, set needs_decomposition to true, give a brief goal_summary, and list the subtasks in order.
+</response_format>
+"""
+
+_COMPLEXITY_CHECK_PROMPT = """\
+Decide: does this user request require multiple distinct steps to complete,
+or is it a single action? Consider whether different tools or actions are needed.
+
+Request: "{request}"
+
+Answer with the verdict "simple" or "complex".
+"""
+
+
+def _infer_template_task_type(text: str) -> str:
+    """Infer the closest prompt-template family for a user request."""
+    text_lower = text.lower()
+    if any(word in text_lower for word in ("bug", "fix", "error", "broken", "crash", "debug")):
+        return "bug_fix"
+    if any(word in text_lower for word in ("research", "investigate", "look up", "find out", "compare")):
+        return "research"
+    if any(word in text_lower for word in ("api", "endpoint", "rest", "graphql", "webhook")):
+        return "api"
+    if any(word in text_lower for word in ("refactor", "clean", "simplify", "optimize")):
+        return "refactor"
+    if any(word in text_lower for word in ("app", "application", "fullstack", "website", "web app", "build", "scaffold")):
+        return "fullstack_app"
+    if any(word in text_lower for word in ("feature", "add", "implement", "create")):
+        return "feature"
+    return "feature"
+
+
+def _has_sequence_markers(text: str) -> bool:
+    """Check if the text contains explicit sequencing language."""
+    text_lower = text.lower()
+    return any(re.search(pattern, text_lower) for pattern in _SEQUENCE_MARKERS)
+
+
+def _count_action_verbs(text: str) -> int:
+    """Count distinct action verb phrases in the text."""
+    text_lower = text.lower()
+    found = set()
+    for verb in _ACTION_VERBS:
+        if verb in text_lower:
+            # Group similar verbs to avoid double-counting
+            root = verb.split()[0]
+            found.add(root)
+    return len(found)
+
+
+def _has_compound_actions(text: str) -> bool:
+    """Check for multiple distinct actions joined by conjunctions."""
+    text_lower = text.lower()
+    parts = re.split(r'\band\b|\bthen\b|,', text_lower)
+    action_parts = 0
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        for verb in _ACTION_VERBS:
+            if verb in part:
+                action_parts += 1
+                break
+    return action_parts >= 2
+
+
+def needs_decomposition_heuristic(text: str) -> bool | None:
+    """Quick heuristic check for whether a request needs decomposition."""
+    text_stripped = text.strip()
+
+    if len(text_stripped) < 30:
+        return False
+
+    if _has_sequence_markers(text_stripped):
+        return True
+
+    verb_count = _count_action_verbs(text_stripped)
+    if verb_count >= 3:
+        return True
+
+    if _has_compound_actions(text_stripped) and verb_count >= 2:
+        return None
+
+    if verb_count <= 1:
+        return False
+
+    return None
+
+
+class TaskPlanner:
+    """Decomposes complex user requests into ordered subtask plans."""
+
+    def __init__(self, llm: Any = None):
+        self.llm = llm
+        self.tracker: TaskTracker = TaskTracker()
+        self._get_learning_context: Callable[[], str] | None = None
+        self._active_planning_session: PlanningSession | None = None
+
+    async def should_decompose(self, user_input: str) -> bool:
+        """Decide whether a request needs task decomposition."""
+        heuristic_result = needs_decomposition_heuristic(user_input)
+        if heuristic_result is not None:
+            logger.info(
+                "Decomposition heuristic: %s (input: '%s')",
+                "yes" if heuristic_result else "no",
+                user_input[:80],
+            )
+            return heuristic_result
+
+        if not self.llm:
+            return False
+
+        try:
+            prompt = _COMPLEXITY_CHECK_PROMPT.format(request=user_input[:500])
+            data = await self.llm.chat_json(prompt, COMPLEXITY_SCHEMA, tier="fast")
+            is_complex = bool(data) and data.get("verdict") == "complex"
+            logger.info(
+                "Decomposition LLM check: %s (input: '%s')",
+                "complex" if is_complex else "simple",
+                user_input[:80],
+            )
+            return is_complex
+        except Exception as e:
+            logger.warning("Complexity check failed: %s. Defaulting to no decomposition.", e)
+            return False
+
+    async def create_plan(
+        self,
+        user_input: str,
+        conversation_history: list[dict] | None = None,
+    ) -> TaskPlan | None:
+        """Decompose a user request into a structured task plan."""
+        if not self.llm:
+            logger.warning("No LLM available for planning.")
+            return None
+
+        try:
+            system_prompt = _PLANNING_SYSTEM_PROMPT
+            if self._get_learning_context:
+                try:
+                    learning_ctx = self._get_learning_context()
+                    if learning_ctx:
+                        system_prompt = system_prompt + "\n" + learning_ctx
+                except Exception as e:
+                    logger.debug("Could not get learning context: %s", e)
+
+            # Structured template library: inject matching template guidance
+            try:
+                template_task_type = _infer_template_task_type(user_input)
+                matched_template = get_template(template_task_type, user_input)
+                if matched_template:
+                    template_guidance = fill_template(
+                        matched_template.template_format,
+                        task=user_input[:200],
+                        safe_defaults=True,
+                    )
+                    system_prompt = (
+                        system_prompt
+                        + "\n\nStructured template guidance ("
+                        + matched_template.task_type
+                        + "):\n"
+                        + template_guidance
+                    )
+                    logger.debug(
+                        "Template matched: %s (score: %.2f)",
+                        matched_template.task_type,
+                        matched_template.score_match(user_input),
+                    )
+            except Exception as e:
+                logger.debug("Template selection failed (non-critical): %s", e)
+
+            plan_data = await self.llm.chat_json(
+                user_input,
+                PLAN_SCHEMA,
+                tier="brain",
+                system_prompt_override=system_prompt,
+                conversation_history=conversation_history,
+            )
+            if not plan_data:
+                logger.warning("Planner returned no valid plan.")
+                return None
+
+            if not plan_data.get("needs_decomposition", False):
+                logger.info(
+                    "Planner says no decomposition needed: %s",
+                    plan_data.get("reason", "single action"),
+                )
+                return None
+
+            subtasks = plan_data.get("subtasks", [])
+            if not subtasks:
+                logger.warning("Planner returned no subtasks.")
+                return None
+
+            if len(subtasks) > MAX_SUBTASKS:
+                logger.warning(
+                    "Plan has %d subtasks, capping at %d.",
+                    len(subtasks), MAX_SUBTASKS,
+                )
+                subtasks = subtasks[:MAX_SUBTASKS]
+
+            goal_summary = plan_data.get("goal_summary", user_input[:80])
+
+            plan = self.tracker.create_plan(
+                original_request=user_input,
+                goal_summary=goal_summary,
+                subtasks=subtasks,
+            )
+
+            logger.info(
+                "Plan created: '%s' with %d subtasks.",
+                goal_summary, len(plan.subtasks),
+            )
+            return plan
+
+        except Exception as e:
+            logger.error("Planning failed: %s", e)
+            return None
+
+    def get_active_plan(self) -> TaskPlan | None:
+        """Get the currently active plan, if any."""
+        return self.tracker.active_plan
+
+    def get_plan_status(self) -> str:
+        """Get human-readable status of the active plan."""
+        return self.tracker.get_plan_status()
+
+    async def check_planning_mode(self, user_input: str) -> PlanningSession | None:
+        """Check if a user input should trigger interactive planning mode."""
+        try:
+            mode_result = await detect_planning_mode(user_input, self.llm)
+            if mode_result and mode_result.needs_planning:
+                session = PlanningSession(
+                    task_type=mode_result.task_type or "general",
+                    initial_description=user_input,
+                )
+                self._active_planning_session = session
+                return session
+        except Exception as e:
+            logger.debug("Planning mode detection failed: %s", e)
+        return None
+

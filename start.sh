@@ -1,0 +1,498 @@
+#!/usr/bin/env bash
+# ============================================================
+# JARVIS Launch Script
+# Usage: ./start.sh [text|voice|server|full]
+# Default: full (voice + API server + UI)
+#
+# Modes:
+#   text   - Terminal text chat only
+#   voice  - Voice interaction only (no UI)
+#   server - API server only (no voice, no UI)
+#   full   - Voice + API server + Next.js UI (recommended)
+# ============================================================
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR="${SCRIPT_DIR}/.venv"
+UI_DIR="${SCRIPT_DIR}/jarvis/ui/jarvis-ui"
+MODE="${1:-full}"
+
+read_env_value() {
+    local key="$1"
+    if [[ -f "${SCRIPT_DIR}/.env" ]]; then
+        grep -E "^${key}=" "${SCRIPT_DIR}/.env" | tail -1 | cut -d= -f2- || true
+    fi
+}
+
+API_PORT="${API_PORT:-$(read_env_value API_PORT)}"
+API_PORT="${API_PORT:-8741}"
+UI_PORT="${UI_PORT:-$(read_env_value UI_PORT)}"
+UI_PORT="${UI_PORT:-3000}"
+NEXT_FALLBACK_PORT=$((UI_PORT + 1))
+JARVIS_OPEN_DASHBOARD="${JARVIS_OPEN_DASHBOARD:-$(read_env_value JARVIS_OPEN_DASHBOARD)}"
+JARVIS_OPEN_DASHBOARD="${JARVIS_OPEN_DASHBOARD:-true}"
+JARVIS_PIN_AUTH_ENABLED="${JARVIS_PIN_AUTH_ENABLED:-$(read_env_value JARVIS_PIN_AUTH_ENABLED)}"
+JARVIS_PIN_AUTH_ENABLED="${JARVIS_PIN_AUTH_ENABLED:-true}"
+JARVIS_REGEN_PIN="${JARVIS_REGEN_PIN:-$(read_env_value JARVIS_REGEN_PIN)}"
+JARVIS_REGEN_PIN="${JARVIS_REGEN_PIN:-true}"
+JARVIS_ENABLE_TUNNEL="${JARVIS_ENABLE_TUNNEL:-$(read_env_value JARVIS_ENABLE_TUNNEL)}"
+JARVIS_ENABLE_TUNNEL="${JARVIS_ENABLE_TUNNEL:-false}"
+JARVIS_UI_MODE="${JARVIS_UI_MODE:-$(read_env_value JARVIS_UI_MODE)}"
+JARVIS_UI_MODE="${JARVIS_UI_MODE:-production}"
+export JARVIS_PIN_AUTH_ENABLED
+export JARVIS_REGEN_PIN
+
+# Track child PIDs for cleanup
+UI_PID=""
+NEXTJS_PID=""
+PROXY_PID=""
+OLLAMA_PID=""
+TUNNEL_PID=""
+OVERLAY_PID=""
+OVERLAY_READY_TO_LAUNCH=""
+RUNTIME_DIR="${SCRIPT_DIR}/data/runtime"
+LIFECYCLE_FILE="${RUNTIME_DIR}/lifecycle.json"
+
+write_lifecycle_state() {
+    local lifecycle_status="${1:-running}"
+    if ! command -v python >/dev/null 2>&1; then
+        return 0
+    fi
+    mkdir -p "${RUNTIME_DIR}"
+    JARVIS_LIFECYCLE_STATUS="${lifecycle_status}" \
+    JARVIS_LIFECYCLE_FILE="${LIFECYCLE_FILE}" \
+    JARVIS_LIFECYCLE_MODE="${MODE}" \
+    JARVIS_LIFECYCLE_HOME="${SCRIPT_DIR}" \
+    JARVIS_API_PORT_VALUE="${API_PORT}" \
+    JARVIS_UI_PORT_VALUE="${UI_PORT}" \
+    JARVIS_PARENT_PID="$$" \
+    JARVIS_UI_PID="${UI_PID}" \
+    JARVIS_NEXTJS_PID="${NEXTJS_PID}" \
+    JARVIS_PROXY_PID="${PROXY_PID}" \
+    JARVIS_OLLAMA_PID="${OLLAMA_PID}" \
+    JARVIS_TUNNEL_PID="${TUNNEL_PID}" \
+    JARVIS_OVERLAY_PID="${OVERLAY_PID}" \
+    python - <<'PY' || true
+import json
+import os
+import time
+from pathlib import Path
+
+path = Path(os.environ["JARVIS_LIFECYCLE_FILE"])
+previous = {}
+if path.exists():
+    try:
+        previous = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        previous = {}
+
+status = os.environ.get("JARVIS_LIFECYCLE_STATUS", "running")
+started_at = time.time() if status == "starting" else previous.get("started_at") or time.time()
+payload = {
+    "status": status,
+    "mode": os.environ.get("JARVIS_LIFECYCLE_MODE", "full"),
+    "jarvis_home": os.environ.get("JARVIS_LIFECYCLE_HOME", ""),
+    "api_port": int(os.environ.get("JARVIS_API_PORT_VALUE") or 8741),
+    "ui_port": int(os.environ.get("JARVIS_UI_PORT_VALUE") or 3000),
+    "started_at": started_at,
+    "updated_at": time.time(),
+    "processes": {
+        "parent_pid": os.environ.get("JARVIS_PARENT_PID", ""),
+        "ui_pid": os.environ.get("JARVIS_UI_PID", ""),
+        "nextjs_pid": os.environ.get("JARVIS_NEXTJS_PID", ""),
+        "proxy_pid": os.environ.get("JARVIS_PROXY_PID", ""),
+        "ollama_pid": os.environ.get("JARVIS_OLLAMA_PID", ""),
+        "tunnel_pid": os.environ.get("JARVIS_TUNNEL_PID", ""),
+        "overlay_pid": os.environ.get("JARVIS_OVERLAY_PID", ""),
+    },
+}
+path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+PY
+}
+
+port_in_use() {
+    [[ -n "$(lsof -nP -iTCP:"$1" -sTCP:LISTEN -t 2>/dev/null | head -1)" ]]
+}
+
+# Ask the OS for a port nothing is listening on.
+free_port() {
+    python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])'
+}
+
+stop_listeners_on_ports() {
+    local ports=("$@")
+    local pids=""
+    local pid=""
+    local port=""
+    for port in "${ports[@]}"; do
+        while IFS= read -r pid; do
+            if [[ -z "${pid}" ]]; then
+                continue
+            fi
+            # Only stop processes that belong to this JARVIS checkout; never
+            # kill an unrelated app that happens to use the same port. A Next.js
+            # server's command line is just "next-server (vX)", so also check
+            # the directory it runs from.
+            local cmd cwd
+            cmd="$(ps -o command= -p "${pid}" 2>/dev/null || true)"
+            cwd="$(lsof -a -p "${pid}" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)"
+            if [[ "${cmd}" == *"${SCRIPT_DIR}"* || "${cmd}" == *"jarvis"* || "${cwd}" == "${SCRIPT_DIR}"* ]]; then
+                pids="${pids} ${pid}"
+            else
+                echo "Port ${port} is used by a non-JARVIS process (PID ${pid}: ${cmd:0:60}, in ${cwd:-unknown}); not stopping it."
+            fi
+        done < <(lsof -nP -iTCP:"${port}" -sTCP:LISTEN -t 2>/dev/null || true)
+    done
+
+    if [[ -z "${pids// /}" ]]; then
+        return 0
+    fi
+
+    echo "Stopping stale listener(s) on port(s) ${ports[*]}:${pids}"
+    for pid in ${pids}; do
+        kill "${pid}" 2>/dev/null || true
+    done
+
+    for _ in {1..20}; do
+        local any_running=""
+        for pid in ${pids}; do
+            if kill -0 "${pid}" 2>/dev/null; then
+                any_running="true"
+            fi
+        done
+        if [[ -z "${any_running}" ]]; then
+            return 0
+        fi
+        sleep 0.25
+    done
+
+    for pid in ${pids}; do
+        if kill -0 "${pid}" 2>/dev/null; then
+            echo "Force stopping stale listener PID ${pid}..."
+            kill -9 "${pid}" 2>/dev/null || true
+        fi
+    done
+}
+
+wait_for_http() {
+    local url="$1"
+    local attempts="${2:-20}"
+    for _ in $(seq 1 "${attempts}"); do
+        if curl -fsS -m 1 -I "${url}" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 0.5
+    done
+    return 1
+}
+
+cleanup() {
+    echo ""
+    echo "Shutting down JARVIS..."
+    write_lifecycle_state "stopping"
+    if [[ -n "${UI_PID}" ]] && kill -0 "${UI_PID}" 2>/dev/null; then
+        echo "Stopping UI server..."
+        kill -- -"${UI_PID}" 2>/dev/null || kill "${UI_PID}" 2>/dev/null || true
+        wait "${UI_PID}" 2>/dev/null || true
+    fi
+    if [[ -n "${NEXTJS_PID}" ]] && kill -0 "${NEXTJS_PID}" 2>/dev/null; then
+        kill "${NEXTJS_PID}" 2>/dev/null || true
+    fi
+    if [[ -n "${PROXY_PID}" ]] && kill -0 "${PROXY_PID}" 2>/dev/null; then
+        kill "${PROXY_PID}" 2>/dev/null || true
+    fi
+    if [[ -n "${TUNNEL_PID}" ]] && kill -0 "${TUNNEL_PID}" 2>/dev/null; then
+        echo "Stopping Cloudflare Tunnel..."
+        kill "${TUNNEL_PID}" 2>/dev/null || true
+    fi
+    # Final sweep: kill anything still holding the UI ports
+    stop_listeners_on_ports "${UI_PORT}" "${NEXT_FALLBACK_PORT}"
+    if [[ -n "${OVERLAY_PID}" ]] && kill -0 "${OVERLAY_PID}" 2>/dev/null; then
+        echo "Stopping Desktop Overlay..."
+        kill "${OVERLAY_PID}" 2>/dev/null || true
+    fi
+    # Also kill any orphaned overlay processes by name
+    pkill -f "JarvisOverlay" 2>/dev/null || true
+    if [[ -n "${OLLAMA_PID}" ]] && kill -0 "${OLLAMA_PID}" 2>/dev/null; then
+        echo "Stopping Ollama..."
+        kill "${OLLAMA_PID}" 2>/dev/null || true
+    fi
+    write_lifecycle_state "stopped"
+    echo "JARVIS shut down."
+    exit 0
+}
+
+trap cleanup SIGINT SIGTERM EXIT
+
+# Check virtual environment
+if [[ ! -d "${VENV_DIR}" ]]; then
+    echo "Virtual environment not found. Run ./setup.sh first."
+    exit 1
+fi
+
+# Activate virtual environment
+source "${VENV_DIR}/bin/activate"
+
+# Verify launch-critical Python dependencies without mutating the environment.
+python -c "import multipart" 2>/dev/null || {
+    echo "Missing python-multipart. Run ./setup.sh before launching JARVIS."
+    exit 1
+}
+python -c "import yaml" 2>/dev/null || {
+    echo "Missing PyYAML. Run ./setup.sh before launching JARVIS."
+    exit 1
+}
+
+# Browser automation is optional at launch, but should be installed by setup.
+if ! python -c "import playwright" 2>/dev/null; then
+    echo "Warning: Playwright is not installed. Browser automation tools will be unavailable until ./setup.sh is rerun."
+elif ! python -c "from playwright.sync_api import sync_playwright; p = sync_playwright().start(); p.chromium.executable_path; p.stop()" 2>/dev/null; then
+    echo "Warning: Playwright Chromium is missing. Run 'playwright install chromium' after setup."
+fi
+
+# Check for Claude Code CLI (optional, for development tasks)
+if command -v claude &>/dev/null; then
+    echo "Claude Code CLI: found ($(claude --version 2>/dev/null || echo 'version unknown'))"
+else
+    echo "Note: Claude Code CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
+    echo "      (Browser automation will still work without it.)"
+fi
+
+# Browser automation uses Playwright with a persistent profile stored in
+# data/browser-profile/. Sessions, cookies, and logins persist between restarts.
+# The first time JARVIS browses a site, you may need to sign in. After that,
+# the session is saved and reused automatically (just like a normal browser).
+# This is more reliable than Chrome CDP, which has strict restrictions on macOS.
+BROWSER_PROFILE="${SCRIPT_DIR}/data/browser-profile"
+mkdir -p "${BROWSER_PROFILE}"
+echo "Browser automation: persistent profile at data/browser-profile/"
+echo "  (Sessions and logins persist between JARVIS restarts)"
+
+# Detect cloudflared for opt-in remote/mobile access via Cloudflare Tunnel.
+# This gives you an HTTPS URL accessible from your phone (mic works over HTTPS).
+# Quick Tunnel: random *.trycloudflare.com URL, no account needed.
+# Named Tunnel: persistent URL, requires free Cloudflare account + domain.
+CLOUDFLARED_AVAILABLE=""
+if command -v cloudflared &>/dev/null; then
+    CLOUDFLARED_AVAILABLE="true"
+    echo ""
+    echo "Cloudflare Tunnel: cloudflared found ($(cloudflared --version 2>&1 | head -1))"
+    if [[ "${JARVIS_ENABLE_TUNNEL}" =~ ^([Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss]|[Oo][Nn])$ ]]; then
+        echo "  Tunnel is enabled. Remote access will require PIN authentication."
+    else
+        echo "  Tunnel is disabled by default. Set JARVIS_ENABLE_TUNNEL=true for phone access."
+    fi
+else
+    echo ""
+    echo "Note: Install cloudflared for mobile/phone access:"
+    echo "  brew install cloudflared"
+    echo "  (Gives you a free HTTPS URL to access JARVIS from your phone)"
+fi
+
+# Check if Ollama is running
+if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+    echo ""
+    echo "Ollama is not running. Starting it in the background..."
+    ollama serve &
+    OLLAMA_PID=$!
+    sleep 2
+    echo "Ollama started (PID: ${OLLAMA_PID})"
+    echo ""
+fi
+
+# Ensure data directories exist for SQLite databases
+mkdir -p "${SCRIPT_DIR}/data"
+write_lifecycle_state "starting"
+
+# Build and launch desktop overlay (macOS only, optional)
+OVERLAY_DIR="${SCRIPT_DIR}/desktop-overlay"
+OVERLAY_APP="${OVERLAY_DIR}/build/JarvisOverlay.app"
+OVERLAY_BIN="${OVERLAY_APP}/Contents/MacOS/JarvisOverlay"
+if [[ "${MODE}" == "full" ]] && [[ -f "${OVERLAY_DIR}/JarvisOverlay.swift" ]]; then
+    if command -v swiftc &>/dev/null; then
+        OVERLAY_REBUILD_REQUIRED="false"
+        if [[ ! -x "${OVERLAY_BIN}" ]]; then
+            OVERLAY_REBUILD_REQUIRED="true"
+        elif [[ "${OVERLAY_DIR}/JarvisOverlay.swift" -nt "${OVERLAY_BIN}" ]] || \
+             [[ "${OVERLAY_DIR}/overlay.html" -nt "${OVERLAY_BIN}" ]] || \
+             [[ "${OVERLAY_DIR}/build-overlay.sh" -nt "${OVERLAY_BIN}" ]] || \
+             [[ "${UI_DIR}/src/lib/jarvisOrbRenderer.js" -nt "${OVERLAY_BIN}" ]]; then
+            OVERLAY_REBUILD_REQUIRED="true"
+        fi
+
+        # Build if executable is missing or source/resources are newer.
+        if [[ "${OVERLAY_REBUILD_REQUIRED}" == "true" ]]; then
+            # Clean stale/broken builds
+            rm -rf "${OVERLAY_DIR}/build" 2>/dev/null || true
+            echo "Building JARVIS Desktop Overlay..."
+            # Run in subshell so build failure does not kill start.sh
+            set +e
+            (cd "${OVERLAY_DIR}" && bash build-overlay.sh) 2>&1 | tail -5
+            BUILD_EXIT=${PIPESTATUS[0]}
+            set -e
+            if [[ "${BUILD_EXIT}" -eq 0 ]]; then
+                echo "Overlay build succeeded."
+            else
+                echo "Warning: Overlay build failed (exit ${BUILD_EXIT}). JARVIS will continue without the desktop overlay."
+                echo "         You can retry manually: cd desktop-overlay && bash build-overlay.sh"
+            fi
+        fi
+        if [[ -x "${OVERLAY_BIN}" ]]; then
+            OVERLAY_READY_TO_LAUNCH="true"
+        fi
+    else
+        echo "Note: swiftc not found. Skipping desktop overlay build."
+        echo "      Install Xcode Command Line Tools with: xcode-select --install"
+    fi
+fi
+
+cd "${SCRIPT_DIR}"
+
+# Start the Next.js UI for modes that need it
+if [[ "${MODE}" == "full" || "${MODE}" == "server" ]]; then
+    if [[ -d "${UI_DIR}" ]] && [[ -f "${UI_DIR}/package.json" ]]; then
+        # Install UI dependencies when they are missing or older than the
+        # lockfile (e.g. after pulling a dependency or security update).
+        if [[ ! -d "${UI_DIR}/node_modules" || "${UI_DIR}/package-lock.json" -nt "${UI_DIR}/node_modules/.package-lock.json" ]]; then
+            echo "Installing UI dependencies..."
+            (cd "${UI_DIR}" && npm ci --no-audit --no-fund)
+        fi
+
+        # Kill stale listeners on the configured UI ports from a previous run.
+        stop_listeners_on_ports "${UI_PORT}" "${NEXT_FALLBACK_PORT}"
+        # Give the OS a moment to release the port
+        sleep 1
+
+        # Another app still owns the port: move the JARVIS UI to a free port
+        # rather than failing to bind and opening that app's page. The backend
+        # reads UI_PORT to decide which browser origin to trust.
+        UI_AVAILABLE="true"
+        if port_in_use "${UI_PORT}"; then
+            BUSY_PORT="${UI_PORT}"
+            UI_PORT="$(free_port || true)"
+            if [[ -n "${UI_PORT}" ]]; then
+                echo "Port ${BUSY_PORT} is taken by another app. Starting the JARVIS UI on port ${UI_PORT} instead."
+            else
+                echo "Error: port ${BUSY_PORT} is taken and no free port could be found. Starting without the web UI."
+                UI_PORT="${BUSY_PORT}"
+                UI_AVAILABLE="false"
+            fi
+        fi
+        export UI_PORT
+
+        if [[ "${UI_AVAILABLE}" == "true" ]]; then
+            if [[ "${JARVIS_UI_MODE}" == "dev" ]]; then
+                UI_COMMAND=(npm run dev -- --hostname 0.0.0.0 --port "${UI_PORT}")
+            else
+                UI_BUILD_MARKER="${UI_DIR}/.next/BUILD_ID"
+                UI_REBUILD_REQUIRED="false"
+                if [[ ! -f "${UI_BUILD_MARKER}" ]]; then
+                    UI_REBUILD_REQUIRED="true"
+                elif find \
+                    "${UI_DIR}/src" \
+                    "${UI_DIR}/public" \
+                    "${UI_DIR}/next.config.js" \
+                    "${UI_DIR}/package.json" \
+                    "${UI_DIR}/package-lock.json" \
+                    "${UI_DIR}/postcss.config.js" \
+                    "${UI_DIR}/tailwind.config.js" \
+                    "${UI_DIR}/tsconfig.json" \
+                    -newer "${UI_BUILD_MARKER}" \
+                    -print -quit | grep -q .; then
+                    UI_REBUILD_REQUIRED="true"
+                fi
+
+                if [[ "${UI_REBUILD_REQUIRED}" == "true" ]]; then
+                    echo "Building JARVIS UI for production..."
+                    (cd "${UI_DIR}" && JARVIS_API_PORT="${API_PORT}" npm run build)
+                fi
+                UI_COMMAND=(npm run start)
+            fi
+
+            echo "Starting JARVIS UI on http://0.0.0.0:${UI_PORT} (${JARVIS_UI_MODE}) ..."
+            (cd "${UI_DIR}" && UI_PORT="${UI_PORT}" JARVIS_API_PORT="${API_PORT}" "${UI_COMMAND[@]}") &
+            UI_PID=$!
+            if ! wait_for_http "http://127.0.0.1:${UI_PORT}" 24; then
+                echo "Warning: UI did not become ready on port ${UI_PORT}. Retrying once..."
+                if kill -0 "${UI_PID}" 2>/dev/null; then
+                    kill "${UI_PID}" 2>/dev/null || true
+                    wait "${UI_PID}" 2>/dev/null || true
+                fi
+                stop_listeners_on_ports "${UI_PORT}" "${NEXT_FALLBACK_PORT}"
+                sleep 1
+                (cd "${UI_DIR}" && UI_PORT="${UI_PORT}" JARVIS_API_PORT="${API_PORT}" "${UI_COMMAND[@]}") &
+                UI_PID=$!
+                if ! wait_for_http "http://127.0.0.1:${UI_PORT}" 24; then
+                    echo "Warning: JARVIS UI is still not responding at http://localhost:${UI_PORT}."
+                    echo "         Check the UI error above or rerun ./start.sh after freeing port ${UI_PORT}."
+                fi
+            fi
+            if [[ "${JARVIS_OPEN_DASHBOARD}" != "false" && "${JARVIS_OPEN_DASHBOARD}" != "0" ]] && command -v open &>/dev/null; then
+                echo "Opening JARVIS Dashboard at http://localhost:${UI_PORT} ..."
+                open "http://localhost:${UI_PORT}" >/dev/null 2>&1 || true
+            fi
+        fi
+    else
+        echo "Warning: UI directory not found at ${UI_DIR}. Skipping UI."
+    fi
+fi
+
+if [[ "${MODE}" == "full" ]] && [[ "${OVERLAY_READY_TO_LAUNCH}" == "true" ]] && [[ -x "${OVERLAY_BIN}" ]]; then
+    # Kill any orphaned overlay instances from previous runs.
+    pkill -f "JarvisOverlay" 2>/dev/null || true
+    sleep 0.5
+    echo "Launching Desktop Overlay..."
+    JARVIS_OVERLAY_URL="http://127.0.0.1:${UI_PORT}/overlay" \
+    JARVIS_UI_PORT="${UI_PORT}" \
+    JARVIS_API_PORT="${API_PORT}" \
+    "${OVERLAY_BIN}" &
+    OVERLAY_PID=$!
+fi
+
+# Start Cloudflare Tunnel for mobile/remote access when explicitly enabled.
+# The tunnel exposes the Next.js UI over HTTPS. API and WebSocket
+# requests from the phone are proxied through Next.js rewrites, so only one
+# tunnel is needed. The tunnel URL is printed to the console.
+if [[ -n "${CLOUDFLARED_AVAILABLE}" ]] && [[ "${JARVIS_ENABLE_TUNNEL}" =~ ^([Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss]|[Oo][Nn])$ ]] && [[ "${MODE}" == "full" || "${MODE}" == "server" ]]; then
+    if [[ ! "${JARVIS_PIN_AUTH_ENABLED}" =~ ^([Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss]|[Oo][Nn])$ ]]; then
+        echo "Remote tunnel requested; enabling PIN authentication for this session."
+        JARVIS_PIN_AUTH_ENABLED="true"
+        export JARVIS_PIN_AUTH_ENABLED
+    fi
+    echo ""
+    echo "Starting Cloudflare Tunnel..."
+    TUNNEL_LOG="${SCRIPT_DIR}/data/logs/cloudflared.log"
+    mkdir -p "$(dirname "${TUNNEL_LOG}")"
+    cloudflared tunnel --url "http://localhost:${UI_PORT}" --no-autoupdate 2>"${TUNNEL_LOG}" &
+    TUNNEL_PID=$!
+    # Wait for cloudflared to print the tunnel URL (usually takes 3-5 seconds)
+    echo "Waiting for tunnel URL..."
+    for i in {1..15}; do
+        TUNNEL_URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' "${TUNNEL_LOG}" 2>/dev/null | head -1 || true)
+        if [[ -n "${TUNNEL_URL}" ]]; then
+            # Read the PIN from the auth hash file location.
+            # The Python process prints the PIN to stdout, but we also
+            # display it here in the tunnel URL banner for convenience.
+            echo ""
+            echo "=================================================="
+            echo "  JARVIS Mobile Access (open on your phone):"
+            echo "  ${TUNNEL_URL}"
+            echo ""
+            echo "  You will be prompted for a PIN on first connect."
+            echo "  The PIN is shown above when JARVIS starts."
+            echo "=================================================="
+            echo ""
+            break
+        fi
+        sleep 1
+    done
+    if [[ -z "${TUNNEL_URL:-}" ]]; then
+        echo "Warning: Could not get tunnel URL. Check ${TUNNEL_LOG} for details."
+        echo "  JARVIS still works locally at http://localhost:${UI_PORT}"
+    fi
+fi
+
+write_lifecycle_state "running"
+
+# Launch JARVIS backend
+python -m jarvis.main "${MODE}"
