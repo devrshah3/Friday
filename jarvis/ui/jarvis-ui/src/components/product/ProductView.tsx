@@ -566,11 +566,11 @@ export default function ProductView({ authToken }: ProductViewProps) {
   }
 
   async function installLaunchAgent() {
-    await api("/app/lifecycle/launch-agent/install", {
+    const data = await api("/app/lifecycle/launch-agent/install", {
       method: "POST",
       body: JSON.stringify({ dry_run: false }),
     });
-    setMessage("Launch agent installed for this checkout.");
+    setMessage(data?.status === "disabled" ? data.message : "Launch agent installed for this checkout.");
     await refreshLifecycle();
   }
 

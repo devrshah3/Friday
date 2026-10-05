@@ -306,29 +306,6 @@ JARVIS runs each routine once per scheduled time, even if the Mac wakes up to tw
 
 The **Live** button in the voice view starts a hands-free conversation on OpenAI `gpt-live-1` ($0.05/min plus any work JARVIS does). The browser streams audio to the JARVIS server, which relays it to OpenAI, so your API key stays on your Mac. When GPT-Live needs something done, JARVIS runs it with its usual tools and approvals and hands back the result to be spoken. You can interrupt at any time. It requires `OPENAI_API_KEY`.
 
-## Auto-Start on Boot (macOS launchd)
-
-To have JARVIS start automatically when you log into your Mac:
-
-```bash
-# Copy the launchd plist to your LaunchAgents
-cp com.jarvis.assistant.plist ~/Library/LaunchAgents/
-
-# Edit the plist if JARVIS is not in ~/Jarvis
-# (update the path in ProgramArguments)
-
-# Load (activate) the service
-launchctl load ~/Library/LaunchAgents/com.jarvis.assistant.plist
-
-# Verify it is running
-launchctl list | grep jarvis
-
-# To stop the auto-start service
-launchctl unload ~/Library/LaunchAgents/com.jarvis.assistant.plist
-```
-
-Logs are written to `/tmp/jarvis-stdout.log` and `/tmp/jarvis-stderr.log`.
-
 ## Project Structure
 
 ```
@@ -337,7 +314,6 @@ Jarvis/
   setup.sh                    # One-time setup script
   start.sh                    # Launch script (text/voice/server/full)
   requirements.txt            # Python dependencies
-  com.jarvis.assistant.plist  # macOS auto-start config
   tests/                      # Unit tests (pytest)
   desktop-overlay/
     JarvisOverlay.swift       # macOS native overlay (Swift + WKWebView)

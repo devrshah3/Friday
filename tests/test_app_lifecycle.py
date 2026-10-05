@@ -18,24 +18,17 @@ def test_launch_agent_plist_is_rendered_without_hardcoded_user_paths(tmp_path):
     assert "__JARVIS_HOME__" not in plist_text
 
 
-def test_install_launch_agent_writes_rendered_plist(tmp_path):
+def test_install_launch_agent_is_disabled_and_writes_nothing(tmp_path):
     launch_agents_dir = tmp_path / "LaunchAgents"
-    jarvis_home = tmp_path / "Jarvis"
 
     result = app_lifecycle.install_launch_agent(
-        jarvis_home=jarvis_home,
+        jarvis_home=tmp_path / "Jarvis",
         launch_agents_dir=launch_agents_dir,
         dry_run=False,
     )
 
-    plist_path = launch_agents_dir / app_lifecycle.LAUNCH_AGENT_FILENAME
-    assert result["status"] == "installed"
-    assert result["path"] == str(plist_path)
-    assert plist_path.exists()
-
-    plist = plistlib.loads(plist_path.read_bytes())
-    assert plist["ProgramArguments"][1] == str(jarvis_home / "start.sh")
-    assert plist["StandardOutPath"] == str(jarvis_home / "data" / "logs" / "launchd-stdout.log")
+    assert result["status"] == "disabled"
+    assert not launch_agents_dir.exists()
 
 
 def test_lifecycle_status_reports_runtime_and_processes(tmp_path):

@@ -14,10 +14,5 @@ npm --prefix jarvis/ui/jarvis-ui run build
 
 bash scripts/package_macos_app.sh --install-user
 
-.venv/bin/python -m jarvis.core.app_lifecycle install-agent
-
 echo "JARVIS installed."
 echo "Launch with: ./start.sh full"
-echo "Optional launchd install:"
-echo "  launchctl bootstrap gui/$(id -u) $HOME/Library/LaunchAgents/com.jarvis.assistant.plist"
-echo "  launchctl bootout gui/$(id -u) $HOME/Library/LaunchAgents/com.jarvis.assistant.plist"

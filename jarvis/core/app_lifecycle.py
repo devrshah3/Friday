@@ -185,33 +185,12 @@ def install_launch_agent(
     load: bool = False,
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    """Install or preview the user LaunchAgent plist."""
-    home = _path(jarvis_home, settings.JARVIS_HOME)
-    target_dir = _path(launch_agents_dir, DEFAULT_LAUNCH_AGENTS_DIR)
-    plist_path = target_dir / LAUNCH_AGENT_FILENAME
-    plist_bytes = render_launch_agent_plist(home)
-
-    result: dict[str, Any] = {
-        "status": "planned" if dry_run else "installed",
+    """Launch-at-login is disabled by Friday hardening: nothing is written or loaded."""
+    return {
+        "status": "disabled",
         "dry_run": dry_run,
-        "path": str(plist_path),
-        "jarvis_home": str(home),
-        "load_requested": load,
-        "launchctl": None,
+        "message": "Launch at login is disabled by Friday hardening. Start Friday manually with ./start.sh.",
     }
-
-    if dry_run:
-        result["plist"] = plist_bytes.decode("utf-8")
-        return result
-
-    target_dir.mkdir(parents=True, exist_ok=True)
-    plist_path.write_bytes(plist_bytes)
-
-    if load and _launchctl_available():
-        _run_command([_launchctl_path(), "bootout", _launch_agent_domain(), str(plist_path)])
-        result["launchctl"] = _run_command([_launchctl_path(), "bootstrap", _launch_agent_domain(), str(plist_path)])
-
-    return result
 
 
 def uninstall_launch_agent(
@@ -476,8 +455,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(get_status(), indent=2, sort_keys=True))
         return 0
     if command == "install-agent":
-        print(json.dumps(install_launch_agent(), indent=2, sort_keys=True))
-        return 0
+        print(json.dumps(install_launch_agent(), indent=2, sort_keys=True), file=sys.stderr)
+        return 1
     if command == "uninstall-agent":
         print(json.dumps(uninstall_launch_agent(), indent=2, sort_keys=True))
         return 0
