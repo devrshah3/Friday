@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from jarvis.tools.filesystem import _is_path_safe
+
 logger = logging.getLogger("jarvis.tools.browser_agent")
 
 MAX_STEPS = 30
@@ -832,14 +834,19 @@ async def browser_upload_file(file_path: str, selector: str = "") -> str:
     if not agent._initialized or not agent._is_page_alive():
         return "Error: browser is not open."
 
-    if not os.path.exists(file_path):
+    safe, reason = _is_path_safe(file_path)
+    if not safe:
+        return f"Cannot upload: {reason}"
+
+    resolved = str(Path(file_path).expanduser().resolve())
+    if not os.path.isfile(resolved):
         return f"Error: file not found: {file_path}"
 
     try:
         file_input = agent._page.locator(selector) if selector else agent._page.locator('input[type="file"]').first
 
-        await file_input.set_input_files(file_path)
-        filename = os.path.basename(file_path)
+        await file_input.set_input_files(resolved)
+        filename = os.path.basename(resolved)
         return f"Uploaded '{filename}' to the file input successfully."
     except Exception as e:
         return f"File upload failed: {str(e)[:200]}"

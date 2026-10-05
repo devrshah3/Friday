@@ -190,6 +190,8 @@ async def move_file(source: str, destination: str) -> str:
 
         if not src.exists():
             return f"Source not found: {source}"
+        if dst.exists():
+            return f"Destination already exists: {dst}. Choose a different destination; move_file will not overwrite."
 
         shutil.move(str(src), str(dst))
         return f"Moved {src.name} to {dst}."
