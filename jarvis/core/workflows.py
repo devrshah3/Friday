@@ -2308,8 +2308,15 @@ async def _run_action_once(
     action_type = str(action.get("type", "prompt"))
     result = _base_action_result(action, dry_run=dry_run)
 
-    if action.get("requires_approval"):
-        message = "Workflow paused for explicit approval." if action_type == "wait_for_approval" else "This action requires user approval."
+    # Calendar writes need approval whatever the stored action says, so a workflow saved
+    # with requires_approval=false still cannot create events unattended.
+    if action.get("requires_approval") or action_type == "create_calendar_event":
+        if action_type == "wait_for_approval":
+            message = "Workflow paused for explicit approval."
+        elif action_type == "create_calendar_event":
+            message = "Calendar writes require explicit approval."
+        else:
+            message = "This action requires user approval."
         result.update({"status": "approval_required", "message": message})
         if not dry_run:
             approval = _record_approval(
@@ -2357,13 +2364,6 @@ async def _run_action_once(
             result["message"] = str(action.get("message") or "Workflow notification prepared.")
         else:
             result["response"] = await _execute_notification(action, str(workflow.get("name", "")))
-    elif action_type == "create_calendar_event":
-        if dry_run:
-            result.update({"status": "approval_required", "message": "Calendar writes require explicit approval."})
-        elif action.get("requires_approval") is False:
-            result["response"] = await _execute_calendar_event(action)
-        else:
-            result.update({"status": "approval_required", "message": "Calendar writes require explicit approval."})
     elif action_type == "wait_for_approval":
         message = "Workflow paused for explicit approval."
         result.update({"status": "approval_required", "message": message})

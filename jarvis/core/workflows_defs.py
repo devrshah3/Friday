@@ -159,9 +159,10 @@ def _normalize_action(action: dict[str, Any], index: int) -> dict[str, Any]:
         "id": str(raw.get("id") or uuid.uuid4().hex),
         "type": action_type,
         "title": _clean_text(raw.get("title") or f"Step {index + 1}", 120),
-        "requires_approval": bool(
-            raw.get("requires_approval", action_type in {"wait_for_approval", "create_calendar_event"})
-        ),
+        # Calendar writes and approval steps always need a human decision; an explicit
+        # requires_approval=false is ignored. Other steps may opt in, never out.
+        "requires_approval": action_type in {"wait_for_approval", "create_calendar_event"}
+        or bool(raw.get("requires_approval", False)),
     }
     for key in (
         "prompt",

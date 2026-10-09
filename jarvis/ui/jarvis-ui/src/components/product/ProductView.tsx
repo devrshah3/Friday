@@ -246,7 +246,7 @@ export default function ProductView({ authToken }: ProductViewProps) {
       retry_delay_ms: Math.max(0, Math.min(Number(action.retry_delay_ms || 0), 30000)),
       on_error: action.on_error || "stop",
       requires_approval: action.type === "create_calendar_event" || action.type === "wait_for_approval"
-        ? action.requires_approval !== false
+        ? true
         : Boolean(action.requires_approval),
     }));
     const permissions = Array.from(new Set(actions.flatMap((action) => {

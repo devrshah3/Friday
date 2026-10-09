@@ -1177,8 +1177,9 @@ async def test_calendar_event_action_requires_approval_by_default(product_bet_fi
     assert run["action_results"][0]["status"] == "approval_required"
     assert "response" not in run["action_results"][0]
 
-    approved = workflows.create_workflow(
-        name="Approved write",
+    # Opting out is no longer possible: requires_approval=false is ignored for calendar writes.
+    opted_out = workflows.create_workflow(
+        name="Tries to skip approval",
         actions=[{
             "type": "create_calendar_event",
             "title": "Planning",
@@ -1186,11 +1187,27 @@ async def test_calendar_event_action_requires_approval_by_default(product_bet_fi
             "requires_approval": False,
         }],
     )
+    assert opted_out["actions"][0]["requires_approval"] is True
 
-    approved_run = await workflows.run_workflow(approved["id"])
+    opted_out_run = await workflows.run_workflow(opted_out["id"])
 
-    assert approved_run is not None
-    assert approved_run["action_results"][0]["response"] == "created:Planning"
+    assert opted_out_run is not None
+    result = opted_out_run["action_results"][0]
+    assert result["status"] == "approval_required"
+    assert result["approval_id"]
+    assert "response" not in result  # nothing was created
+
+    # Even a stored action that still says requires_approval=false needs approval at run time.
+    stored = await workflows._run_action_once(
+        action={"type": "create_calendar_event", "title": "Planning", "start_date": "May 20, 2026 9:00 AM",
+                "requires_approval": False},
+        workflow=opted_out,
+        run_id="run-legacy",
+        runner=None,
+        triggered_by="test",
+        dry_run=False,
+    )
+    assert stored["status"] == "approval_required" and "response" not in stored
 
 
 @pytest.mark.asyncio
@@ -1270,7 +1287,12 @@ async def test_provider_calendar_event_respects_policy_and_writes_when_allowed(p
     blocked_run = await workflows.run_workflow(blocked["id"])
 
     assert blocked_run is not None
-    assert "Auto-create is disabled" in blocked_run["action_results"][0]["response"]
+    assert blocked_run["action_results"][0]["status"] == "approval_required"
+    assert calls == []
+
+    # The scheduling policy still blocks an unapproved write.
+    unapproved = await workflows._execute_calendar_event(blocked["actions"][0])
+    assert "Auto-create is disabled" in unapproved
     assert calls == []
 
     calendar_accounts.update_policy({
@@ -1295,7 +1317,13 @@ async def test_provider_calendar_event_respects_policy_and_writes_when_allowed(p
     allowed_run = await workflows.run_workflow(allowed["id"])
 
     assert allowed_run is not None
-    assert allowed_run["action_results"][0]["response"] == "Created Google calendar event: Planning"
+    assert allowed_run["action_results"][0]["status"] == "approval_required"
+    assert calls == []  # nothing is written until a person approves
+
+    approval = await workflows.approve_approval(allowed_run["action_results"][0]["approval_id"])
+
+    assert approval is not None and approval["execution_status"] == "completed"
+    assert approval["response"] == "Created Google calendar event: Planning"
     assert calls[0]["provider"] == "google"
     assert calls[0]["calendar_id"] == "team-calendar"
     assert calls[0]["timezone"] == "America/Chicago"

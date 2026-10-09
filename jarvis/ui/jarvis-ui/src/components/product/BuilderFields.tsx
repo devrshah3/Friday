@@ -242,14 +242,9 @@ export function ActionFields({
           <span className="text-2xs text-jarvis-text-dim/50 uppercase tracking-wider">Notes</span>
           <textarea className="jarvis-input mt-1 min-h-20 resize-none" value={action.notes || ""} onChange={(event) => updateAction(index, { notes: event.target.value })} />
         </label>
-        <label className="flex items-center gap-2 rounded-md border border-white/[0.04] bg-white/[0.015] px-3 py-2">
-          <input
-            type="checkbox"
-            checked={action.requires_approval !== false}
-            onChange={(event) => updateAction(index, { requires_approval: event.target.checked })}
-          />
-          <span className="text-2xs text-jarvis-text/60 uppercase tracking-wider">Require Approval</span>
-        </label>
+        <div className="rounded-md border border-white/[0.04] bg-white/[0.015] px-3 py-2">
+          <span className="text-2xs text-jarvis-text/60 uppercase tracking-wider">Approval always required for calendar events</span>
+        </div>
       </div>
     );
   }
