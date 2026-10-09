@@ -20,6 +20,21 @@ uses Keychain through the Python `keyring` package. Existing `.env` API keys are
 honored for compatibility, but new API key writes are no longer persisted to
 plain text.
 
+## PIN Authorization
+
+Tools marked `requires_authorization` (e.g. `trash_file`) need a PIN typed into
+the local web UI. Telegram, iMessage and voice only post "This needs your PIN on
+your Mac." and can never approve. Set or change the PIN from a terminal on the
+Mac itself (refused over SSH or without a TTY):
+
+```bash
+python -m jarvis.core.authz set-pin
+```
+
+Only a salted scrypt hash is stored (in the Keychain via the secrets backend).
+Three wrong PINs lock authorization for five minutes. With no PIN set, no UI
+open, or a timeout, the tool is blocked.
+
 ## Traces And Audits
 
 HTTP requests, background jobs, and tool executions are correlated with

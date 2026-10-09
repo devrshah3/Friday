@@ -65,6 +65,9 @@ class ToolPermission:
     capabilities: frozenset[Capability]
     risk: RiskLevel
     requires_confirmation: bool = False
+    # Stronger than confirmation: the tool cannot run without a PIN-backed grant
+    # (jarvis.core.authz), whatever the permission mode.
+    requires_authorization: bool = False
     reason: str = ""
 
 
@@ -81,12 +84,14 @@ def _perm(
     *capabilities: Capability,
     risk: RiskLevel = RiskLevel.LOW,
     requires_confirmation: bool = False,
+    requires_authorization: bool = False,
     reason: str = "",
 ) -> ToolPermission:
     return ToolPermission(
         capabilities=frozenset(capabilities),
         risk=risk,
         requires_confirmation=requires_confirmation,
+        requires_authorization=requires_authorization,
         reason=reason,
     )
 
@@ -247,7 +252,7 @@ def is_side_effect_free(tool_name: str) -> bool:
     """
     permission = get_tool_permission(tool_name)
     caps = permission.capabilities
-    if permission.requires_confirmation or caps & _SIDE_EFFECT_CAPABILITIES:
+    if permission.requires_confirmation or permission.requires_authorization or caps & _SIDE_EFFECT_CAPABILITIES:
         return False
     return Capability.COMMUNICATION not in caps or Capability.READ_LOCAL in caps
 
@@ -286,6 +291,16 @@ def call_is_confirmed(tool_input: dict[str, Any]) -> bool:
 def assess_tool_call(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
     """Assess whether a tool should be allowed to run in the current policy mode."""
     permission = get_tool_permission(tool_name)
+    if permission.requires_authorization:
+        # Not subject to audit mode, confirmed_scope or any model-supplied flag:
+        # only a live PIN-backed grant for this exact call lets it through.
+        from jarvis.core import authz
+
+        problem = authz.grant_problem(tool_name, tool_input)
+        if problem:
+            reason = permission.reason or "Tool requires PIN authorization."
+            return PermissionDecision(allowed=False, permission=permission, reason=f"{reason} {problem}".strip())
+        return PermissionDecision(allowed=True, permission=permission)
     if _permission_mode() == "enforce" and permission.requires_confirmation and not call_is_confirmed(tool_input):
         reason = permission.reason or "Tool requires explicit confirmation."
         reason = f"{reason} Confirm via the app; a model-supplied confirmation is not trusted."
@@ -298,7 +313,7 @@ def describe_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
     redacted = _redact(tool_input)
     parts = []
     for key, value in redacted.items():
-        if key == "confirmed":
+        if key in ("confirmed", "authorized", "authorization"):
             continue
         text = str(value)
         if len(text) > 80:

@@ -33,6 +33,7 @@ from jarvis.agent.platform_tools import available_schemas, is_available
 from jarvis.agent.qa_agent import QAAgent
 from jarvis.agent.tool_selector import select_tools_for_request, with_deferred_loading
 from jarvis.agent.tools_schema import TOOL_REGISTRY, TOOL_SCHEMAS
+from jarvis.core import authz
 from jarvis.core.cache import invalidate_on_mutation, tool_cache
 from jarvis.core.confirmation import confirmed_scope
 from jarvis.core.hardening import (
@@ -51,6 +52,7 @@ from jarvis.core.permissions import (
     assess_tool_call,
     call_is_confirmed,
     describe_tool_call,
+    get_tool_permission,
     is_side_effect_free,
     record_tool_audit,
 )
@@ -265,7 +267,12 @@ class AgentExecutor:
             )
 
         tool_input = validate_tool_args(tool_name, tool_input)
+        if get_tool_permission(tool_name).requires_authorization:
+            # "authorized"/"confirmed" flags from the model carry no authority.
+            tool_input = authz.strip_authorization_flags(tool_input)
         decision = assess_tool_call(tool_name, tool_input)
+        if not decision.allowed and decision.permission.requires_authorization:
+            return await self._authorize_and_run(tool_name, tool_input, circuit, decision)
         if not decision.allowed:
             approved = False
             if decision.permission.requires_confirmation and confirmation_available():
@@ -290,8 +297,27 @@ class AgentExecutor:
 
         return await self._run_allowed_tool(tool_name, tool_input, circuit)
 
+    async def _authorize_and_run(self, tool_name: str, tool_input: dict, circuit, decision):
+        """Ask for the PIN in the local UI, then run the tool under the single-use grant."""
+        result = await authz.request_authorization(
+            tool_name, tool_input, risk=decision.permission.risk.value
+        )
+        if not result.granted or result.grant is None:
+            record_tool_audit(tool_name, tool_input, allowed=False, success=False, error=result.reason)
+            logger.warning("Tool %s not authorized: %s", tool_name, result.reason)
+            return f"Tool '{tool_name}' was not run: {result.reason}"
+        with authz.authorized_scope(result.grant):
+            return await self._run_allowed_tool(tool_name, tool_input, circuit)
+
     async def _run_allowed_tool(self, tool_name: str, tool_input: dict, circuit):
         """Execute a tool that has passed (or been granted) the permission gate."""
+        if get_tool_permission(tool_name).requires_authorization:
+            # Single use: consumed here, right before the tool runs.
+            problem = authz.consume_grant(tool_name, tool_input)
+            if problem:
+                record_tool_audit(tool_name, tool_input, allowed=False, success=False, error=problem)
+                logger.warning("Tool %s blocked: %s", tool_name, problem)
+                return f"Tool '{tool_name}' was not run: {problem}"
         # Replace any model-supplied confirmation flag with the server-verified
         # value, so a tool that acts on it (e.g. send_email sending vs drafting)
         # cannot be driven by a prompt-injected confirmed=true.

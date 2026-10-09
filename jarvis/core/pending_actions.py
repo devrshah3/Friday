@@ -6,6 +6,11 @@ pending action, notifies connected clients through a notifier hook the server
 installs, and awaits an approve/deny decision with a timeout. A UI approval
 endpoint (or, later, the voice loop) calls resolve() to answer.
 
+Actions of kind "authorize" (PIN-gated tools, see jarvis.core.authz) live in the
+same store but are invisible to resolve() and list_pending(): Telegram, iMessage
+and voice can only answer plain confirmations, so none of them can approve an
+authorization. Only jarvis.core.authz settles one, after a PIN check.
+
 State is in-memory only — confirmations are short-lived and interactive, so a
 server restart simply times out any in-flight request, which is denied (fail
 safe). The redacted summary is stored, never the raw tool arguments.
@@ -42,6 +47,7 @@ class PendingAction:
     summary: str
     risk: str
     created_at: float
+    kind: str = "confirm"  # "confirm" | "authorize"
 
     def public(self) -> dict[str, Any]:
         return {
@@ -70,14 +76,33 @@ def confirmation_available() -> bool:
 
 
 def list_pending() -> list[dict[str, Any]]:
-    """Return the currently pending actions (for a reconnecting client)."""
-    return [action.public() for action in _pending.values()]
+    """Return the pending confirmations (for a reconnecting client)."""
+    return [action.public() for action in _pending.values() if action.kind == "confirm"]
+
+
+def list_authorizations() -> list[dict[str, Any]]:
+    """Return pending PIN authorizations (for a reconnecting local UI)."""
+    return [action.public() for action in _pending.values() if action.kind == "authorize"]
+
+
+def get_authorization(action_id: str) -> PendingAction | None:
+    """Return a still-open authorization action, or None."""
+    action = _pending.get(action_id)
+    future = _futures.get(action_id)
+    if action is None or action.kind != "authorize" or future is None or future.done():
+        return None
+    return action
 
 
 def resolve(action_id: str, approved: bool) -> bool:
-    """Answer a pending confirmation. Returns False if it is unknown or settled."""
+    """Answer a pending confirmation. Returns False if it is unknown or settled.
+
+    Authorization actions are refused here whatever channel asks: they need a
+    PIN, which only jarvis.core.authz checks (see settle_authorization).
+    """
+    action = _pending.get(action_id)
     future = _futures.get(action_id)
-    if future is None or future.done():
+    if action is None or action.kind != "confirm" or future is None or future.done():
         return False
     future.set_result(approved)
     return True
@@ -131,3 +156,43 @@ async def request_confirmation(
     finally:
         _pending.pop(action.id, None)
         _futures.pop(action.id, None)
+
+
+def open_authorization(tool_name: str, *, summary: str, risk: str) -> PendingAction:
+    """Register a pending PIN authorization. Await it with wait_authorization()."""
+    action = PendingAction(
+        id=uuid.uuid4().hex,
+        tool_name=tool_name,
+        summary=summary,
+        risk=risk,
+        created_at=time.time(),
+        kind="authorize",
+    )
+    _pending[action.id] = action
+    _futures[action.id] = asyncio.get_running_loop().create_future()
+    return action
+
+
+def settle_authorization(action_id: str, approved: bool) -> bool:
+    """Settle an authorization. Trusted callers only: jarvis.core.authz, after a PIN check."""
+    future = _futures.get(action_id)
+    action = _pending.get(action_id)
+    if future is None or action is None or action.kind != "authorize" or future.done():
+        return False
+    future.set_result(approved)
+    return True
+
+
+async def wait_authorization(action_id: str, timeout_s: float) -> bool:
+    """Wait for an authorization to be settled; timeout denies. Always cleans up."""
+    future = _futures.get(action_id)
+    if future is None:
+        return False
+    try:
+        return await asyncio.wait_for(future, timeout=timeout_s)
+    except TimeoutError:
+        logger.info("Authorization %s timed out after %.0fs.", action_id, timeout_s)
+        return False
+    finally:
+        _pending.pop(action_id, None)
+        _futures.pop(action_id, None)

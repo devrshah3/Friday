@@ -17,6 +17,9 @@ SUPPORTED_SECRETS = {
     "OUTLOOK_CALENDAR_CLIENT_SECRET",
     "OUTLOOK_CALENDAR_TOKEN",
 }
+# Secrets that only server code may touch: never settable from the settings API
+# and never read from (or overridden by) environment variables.
+PRIVATE_SECRETS = {"AUTHZ_PIN_HASH"}
 
 
 class SecretStoreError(RuntimeError):
@@ -41,7 +44,7 @@ def _load_keyring():
 
 
 def _is_supported(name: str) -> bool:
-    return name in SUPPORTED_SECRETS
+    return name in SUPPORTED_SECRETS or name in PRIVATE_SECRETS
 
 
 def get_secret_backend_status() -> dict[str, str | bool]:
@@ -66,7 +69,7 @@ def get_secret(name: str) -> str:
     if not _is_supported(name):
         return ""
 
-    env_value = os.getenv(name, "")
+    env_value = "" if name in PRIVATE_SECRETS else os.getenv(name, "")
     if env_value:
         return env_value
 

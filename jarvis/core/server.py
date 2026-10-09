@@ -18,6 +18,7 @@ from jarvis.config import settings
 from jarvis.core import (
     app_lifecycle,
     auth,
+    authz,
     batch,
     cost_tracker,
     feedback,
@@ -29,7 +30,9 @@ from jarvis.core import (
 )
 from jarvis.core import profile as user_profile
 from jarvis.core.api_models import (
+    AuthorizePinRequest,
     BatchRequest,
+    CancelAuthorizationRequest,
     ChatRequest,
     ChatResponse,
     ConfirmActionRequest,
@@ -166,6 +169,7 @@ class ClientInfo:
         self.device_type: str = "unknown"  # "phone", "tablet", "desktop", "unknown"
         self.device_name: str = ""         # user-friendly name, e.g. "iPhone 15"
         self.wants_audio: bool = True      # whether this client wants TTS audio
+        self.local: bool = False           # genuine loopback client (may be asked for the PIN)
         self.connected_at: float = time.time()
         self.last_activity: float = time.time()
 
@@ -193,11 +197,13 @@ class ConnectionManager:
         self.active: list[WebSocket] = []
         self._clients: dict[WebSocket, ClientInfo] = {}
 
-    async def connect(self, ws: WebSocket):
+    async def connect(self, ws: WebSocket, local: bool = False):
         await ws.accept()
         await self._prune_stale()
         self.active.append(ws)
-        self._clients[ws] = ClientInfo(ws)
+        info = ClientInfo(ws)
+        info.local = local
+        self._clients[ws] = info
         logger.info("WebSocket client connected. Total: %d", len(self.active))
 
     def disconnect(self, ws: WebSocket):
@@ -282,6 +288,24 @@ class ConnectionManager:
                 disconnected.append(ws)
         for ws in disconnected:
             self.disconnect(ws)
+
+    async def broadcast_local_json(self, data: dict) -> None:
+        """Send to genuine local clients only; raise if none received it.
+
+        Used for the PIN prompt: a remote browser (tunnel, LAN) must never be
+        shown it, and "nobody to ask" must read as undelivered, not as success.
+        """
+        delivered = 0
+        for ws, info in list(self._clients.items()):
+            if not info.local or ws not in self.active:
+                continue
+            try:
+                await ws.send_json(data)
+                delivered += 1
+            except Exception:
+                self.disconnect(ws)
+        if not delivered:
+            raise RuntimeError("no local client connected")
 
     async def broadcast_to_audio_clients(
         self, data: dict, exclude: WebSocket | None = None
@@ -566,6 +590,8 @@ async def lifespan(app: FastAPI):
     brain.proactive._on_suggestion = _deliver_proactive_suggestion
     # Let the executor ask connected clients to approve high-risk tool calls.
     pending_actions.add_notifier(ws_manager.broadcast_json)
+    # PIN prompts go to local web UI clients only.
+    authz.add_ui_notifier(ws_manager.broadcast_local_json)
     from jarvis.core.mcp_client import MCPManager
 
     global _mcp_manager
@@ -596,6 +622,7 @@ async def lifespan(app: FastAPI):
     if imessage_task is not None:
         imessage_task.cancel()
     pending_actions.remove_notifier(ws_manager.broadcast_json)
+    authz.remove_ui_notifier(ws_manager.broadcast_local_json)
     cleanup_task.cancel()
     scheduler_task.cancel()
     routine_task.cancel()
@@ -1014,6 +1041,32 @@ async def confirm_pending_action(request: ConfirmActionRequest):
     """
     resolved = pending_actions.resolve(request.action_id, request.approved)
     return {"resolved": resolved}
+
+
+@app.post("/tools/authorize", dependencies=[Depends(require_auth)])
+async def authorize_pending_action(request: Request, body: AuthorizePinRequest):
+    """Submit the typed PIN for a pending authorization-level tool call.
+
+    Loopback clients only (a tunnel or LAN browser is refused even with a valid
+    login), and no response ever carries the PIN or its hash. The PIN is not
+    logged or traced here.
+    """
+    if not _client_is_local(request):
+        return JSONResponse(status_code=403, content={"error": "Authorization is only available on this Mac."})
+    result = authz.submit_pin(body.action_id, body.pin, is_local=True)
+    status = 200 if result.ok else (429 if result.locked else 401)
+    return JSONResponse(
+        status_code=status,
+        content={"ok": result.ok, "error": result.error, "locked": result.locked, "attempts_left": result.attempts_left},
+    )
+
+
+@app.post("/tools/authorize/cancel", dependencies=[Depends(require_auth)])
+async def cancel_pending_authorization(request: Request, body: CancelAuthorizationRequest):
+    """Dismiss a pending PIN prompt (denies the tool call). Loopback only."""
+    if not _client_is_local(request):
+        return JSONResponse(status_code=403, content={"error": "Authorization is only available on this Mac."})
+    return {"cancelled": authz.cancel_authorization(body.action_id, is_local=True)}
 
 
 @app.get("/jobs/{job_id}", dependencies=[Depends(require_auth)])
@@ -1635,7 +1688,7 @@ async def websocket_chat(websocket: WebSocket):
             await websocket.close(code=4001, reason="Authentication required")
             return
 
-    await ws_manager.connect(websocket)
+    await ws_manager.connect(websocket, local=is_local)
 
     try:
         while True:

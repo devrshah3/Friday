@@ -22,7 +22,7 @@ from typing import Any
 import httpx
 
 from jarvis.config import settings
-from jarvis.core import notify, pending_actions
+from jarvis.core import authz, notify, pending_actions
 
 logger = logging.getLogger("jarvis.channels.telegram")
 
@@ -104,6 +104,12 @@ class TelegramBridge:
         if self._owner is not None:
             await self.send(self._owner, text, reply_markup=keyboard)
 
+    async def authorization_notifier(self, payload: dict[str, Any]) -> None:
+        """authz info notifier: a PIN-gated tool was requested. Telegram can't answer it."""
+        if payload.get("type") != "authorization_info" or self._owner is None:
+            return
+        await self.send(self._owner, str(payload["message"]))
+
     async def handle_update(self, update: dict[str, Any]) -> None:
         callback = update.get("callback_query")
         if callback:
@@ -146,6 +152,7 @@ class TelegramBridge:
             logger.warning("Telegram bridge not started: TELEGRAM_ALLOWED_USER_IDS is empty.")
             return
         pending_actions.add_notifier(self.confirmation_notifier)
+        authz.add_info_notifier(self.authorization_notifier)
         notify.add_channel(self.broadcast)
         logger.info("Telegram bridge running for %d allowed user(s).", len(self._allowed))
         try:
@@ -167,5 +174,6 @@ class TelegramBridge:
                     task.add_done_callback(self._tasks.discard)
         finally:
             pending_actions.remove_notifier(self.confirmation_notifier)
+            authz.remove_info_notifier(self.authorization_notifier)
             notify.remove_channel(self.broadcast)
             await self._client.aclose()

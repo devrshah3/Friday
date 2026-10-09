@@ -187,6 +187,15 @@ export interface PendingConfirmation {
   created_at: number;
 }
 
+export type PendingAuthorization = PendingConfirmation;
+
+export interface AuthorizationResult {
+  ok: boolean;
+  error: string;
+  locked: boolean;
+  attemptsLeft: number | null;
+}
+
 export interface WSMessage {
   token?: string;
   done?: boolean;
@@ -262,6 +271,8 @@ export interface WSMessage {
   };
   type?: string;
   confirmation?: PendingConfirmation;
+  authorization?: PendingAuthorization;
+  id?: string;
   error?: string;
 }
 

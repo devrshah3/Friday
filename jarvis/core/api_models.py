@@ -1,7 +1,7 @@
 """Request and response models for the HTTP API."""
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PinRequest(BaseModel):
@@ -26,6 +26,16 @@ class JobRequest(BaseModel):
 class ConfirmActionRequest(BaseModel):
     action_id: str
     approved: bool
+
+
+class AuthorizePinRequest(BaseModel):
+    action_id: str
+    # repr=False keeps the PIN out of any logged/printed model representation.
+    pin: str = Field(repr=False, max_length=32)
+
+
+class CancelAuthorizationRequest(BaseModel):
+    action_id: str
 
 
 class CostEstimateRequest(BaseModel):

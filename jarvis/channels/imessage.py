@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from jarvis.config import settings
-from jarvis.core import notify, pending_actions
+from jarvis.core import authz, notify, pending_actions
 
 logger = logging.getLogger("jarvis.channels.imessage")
 
@@ -148,6 +148,13 @@ class IMessageBridge:
         if self._owner and self._owner in self._reply_to:
             await self.reply(self._reply_to[self._owner], text)
 
+    async def authorization_notifier(self, payload: dict[str, Any]) -> None:
+        """authz info notifier: a PIN-gated tool was requested. iMessage can't answer it."""
+        if payload.get("type") != "authorization_info":
+            return
+        if self._owner and self._owner in self._reply_to:
+            await self.reply(self._reply_to[self._owner], str(payload["message"]))
+
     async def confirmation_notifier(self, payload: dict[str, Any]) -> None:
         if payload.get("type") != "confirmation_required":
             return
@@ -199,6 +206,7 @@ class IMessageBridge:
             )
             return
         pending_actions.add_notifier(self.confirmation_notifier)
+        authz.add_info_notifier(self.authorization_notifier)
         notify.add_channel(self.broadcast)
         logger.info("iMessage bridge running for %d allowed handle(s).", len(self._handles))
         try:
@@ -215,4 +223,5 @@ class IMessageBridge:
                 await asyncio.sleep(POLL_SECONDS)
         finally:
             pending_actions.remove_notifier(self.confirmation_notifier)
+            authz.remove_info_notifier(self.authorization_notifier)
             notify.remove_channel(self.broadcast)

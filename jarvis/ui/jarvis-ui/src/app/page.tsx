@@ -9,6 +9,7 @@ import StatusBar from "@/components/shared/StatusBar";
 import ProactiveToast from "@/components/shared/ProactiveToast";
 import PlanProgress from "@/components/shared/PlanProgress";
 import ConfirmationModal from "@/components/shared/ConfirmationModal";
+import AuthorizationModal from "@/components/shared/AuthorizationModal";
 import CinematicView from "@/components/cinematic/CinematicView";
 import ChatView from "@/components/chat/ChatView";
 import DashboardView from "@/components/dashboard/DashboardView";
@@ -41,6 +42,9 @@ export default function Page() {
     activePlan,
     pendingConfirmations,
     respondToConfirmation,
+    pendingAuthorizations,
+    submitAuthorization,
+    cancelAuthorization,
   } = useJarvisWebSocket(authState.token);
 
   const { serverStatus } = useServerStatus(authState.token);
@@ -188,6 +192,12 @@ export default function Page() {
       <ConfirmationModal
         confirmations={pendingConfirmations}
         onRespond={respondToConfirmation}
+      />
+
+      <AuthorizationModal
+        authorizations={pendingAuthorizations}
+        onSubmit={submitAuthorization}
+        onCancel={cancelAuthorization}
       />
 
       <SettingsPanel authToken={authState.token} />

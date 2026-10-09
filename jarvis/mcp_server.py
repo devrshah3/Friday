@@ -46,7 +46,7 @@ def exposed_tools(extra: str | None = None) -> list[str]:
         if name.startswith("mcp__") or not is_available(name):
             continue  # skip tools borrowed from other MCP servers and ones this OS can't run
         permission = get_tool_permission(name)
-        if permission.requires_confirmation:
+        if permission.requires_confirmation or permission.requires_authorization:
             continue
         # By default: read-only tools that don't reveal private content. Files,
         # clipboard, screen, email and calendar need an explicit opt-in.

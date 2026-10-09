@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   ConnectionStatus, ChatMessage, CostSummary, WSMessage,
   ProactiveSuggestion, PlanState, PlanSubtask, ConnectedDevice, PendingConfirmation,
+  PendingAuthorization, AuthorizationResult,
 } from "@/lib/types";
 import { getApiBaseUrl, getWsUrl, jarvisHeaders } from "@/lib/apiBase";
 
@@ -161,6 +162,9 @@ interface UseJarvisWebSocketReturn {
   activePlan: PlanState | null;
   pendingConfirmations: PendingConfirmation[];
   respondToConfirmation: (id: string, approved: boolean) => void;
+  pendingAuthorizations: PendingAuthorization[];
+  submitAuthorization: (id: string, pin: string) => Promise<AuthorizationResult>;
+  cancelAuthorization: (id: string) => void;
 }
 function detectDeviceType(): { device_type: string; device_name: string } {
   if (typeof navigator === "undefined") {
@@ -194,6 +198,7 @@ export function useJarvisWebSocket(authToken?: string | null): UseJarvisWebSocke
   const [activePlan, setActivePlan] = useState<PlanState | null>(null);
   const [connectedDevices, setConnectedDevices] = useState<ConnectedDevice[]>([]);
   const [pendingConfirmations, setPendingConfirmations] = useState<PendingConfirmation[]>([]);
+  const [pendingAuthorizations, setPendingAuthorizations] = useState<PendingAuthorization[]>([]);
 
   // Envelope playback and audio chunking state
   const envelopeRef = useRef<number[]>([]);
@@ -545,6 +550,20 @@ export function useJarvisWebSocket(authToken?: string | null): UseJarvisWebSocke
             return;
           }
 
+          // ---- PIN prompt for an authorization-level tool (local UI only) ----
+          if (data.type === "authorization_required" && data.authorization) {
+            const authorization = data.authorization;
+            setPendingAuthorizations((prev) =>
+              prev.some((a) => a.id === authorization.id) ? prev : [...prev, authorization]
+            );
+            return;
+          }
+          if (data.type === "authorization_resolved" && data.id) {
+            const resolvedId = data.id;
+            setPendingAuthorizations((prev) => prev.filter((a) => a.id !== resolvedId));
+            return;
+          }
+
           // ---- Proactive suggestion from background engine ----
           if (data.proactive_suggestion) {
             const ps = data.proactive_suggestion;
@@ -884,6 +903,45 @@ export function useJarvisWebSocket(authToken?: string | null): UseJarvisWebSocke
       });
   }, [authToken]);
 
+  const submitAuthorization = useCallback(
+    async (id: string, pin: string): Promise<AuthorizationResult> => {
+      // The PIN goes straight to the local server; it is never put in state,
+      // storage, the chat socket or a log line.
+      try {
+        const res = await fetch(`${getApiBaseUrl()}/tools/authorize`, {
+          method: "POST",
+          headers: jarvisHeaders(authToken, true),
+          body: JSON.stringify({ action_id: id, pin }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (res.ok && body.ok) {
+          setPendingAuthorizations((prev) => prev.filter((a) => a.id !== id));
+        }
+        return {
+          ok: Boolean(res.ok && body.ok),
+          error: String(body.error || (res.ok ? "" : "Authorization failed.")),
+          locked: Boolean(body.locked),
+          attemptsLeft: typeof body.attempts_left === "number" ? body.attempts_left : null,
+        };
+      } catch {
+        return { ok: false, error: "Could not reach FRIDAY.", locked: false, attemptsLeft: null };
+      }
+    },
+    [authToken]
+  );
+
+  const cancelAuthorization = useCallback(
+    (id: string) => {
+      setPendingAuthorizations((prev) => prev.filter((a) => a.id !== id));
+      fetch(`${getApiBaseUrl()}/tools/authorize/cancel`, {
+        method: "POST",
+        headers: jarvisHeaders(authToken, true),
+        body: JSON.stringify({ action_id: id }),
+      }).catch(() => {});
+    },
+    [authToken]
+  );
+
   return {
     status,
     messages,
@@ -903,5 +961,8 @@ export function useJarvisWebSocket(authToken?: string | null): UseJarvisWebSocke
     activePlan,
     pendingConfirmations,
     respondToConfirmation,
+    pendingAuthorizations,
+    submitAuthorization,
+    cancelAuthorization,
   };
 }
