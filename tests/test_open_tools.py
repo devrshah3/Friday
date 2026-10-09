@@ -1,9 +1,20 @@
 """open_file / reveal_file / open_website / open_url: what they will and won't open."""
+import asyncio
 import types
 
 import pytest
 
 from jarvis.tools import mac_control
+
+
+@pytest.fixture(autouse=True)
+def _no_real_processes(monkeypatch):
+    """Safety net: nothing in this file may start a real process (osascript, open, ...)."""
+
+    async def refuse(*args, **kwargs):
+        raise AssertionError(f"test tried to start a real process: {args[:1]}")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", refuse)
 
 
 @pytest.fixture

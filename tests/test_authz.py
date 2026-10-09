@@ -1,5 +1,6 @@
 """PIN authorization: grants, brute-force lockout, and channels that must not approve."""
 import asyncio
+import json
 import logging
 import os
 import time
@@ -16,7 +17,7 @@ from jarvis.agent.executor import AgentExecutor
 from jarvis.agent.tools_schema import TOOL_REGISTRY, TOOL_SCHEMAS
 from jarvis.channels import imessage, telegram
 from jarvis.config import settings
-from jarvis.core import authz, pending_actions, permissions
+from jarvis.core import authz, pending_actions, permissions, tracing
 from jarvis.core import secrets as secret_store
 from jarvis.core.confirmation import confirmed_scope
 from jarvis.core.permissions import TOOL_PERMISSIONS, RiskLevel, assess_tool_call
@@ -48,10 +49,17 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("FRIDAY_ALLOWED_ROOTS", str(docs))
     monkeypatch.setattr(permissions, "DB_PATH", tmp_path / "audit.db")
+    traced: list[dict] = []  # trace events are captured, never written to the real log
+    monkeypatch.setattr(tracing, "_write_event", lambda event, path=None: traced.append(event))
+
+    async def no_real_process(*args, **kwargs):
+        raise AssertionError(f"test tried to start a real process: {args[:1]}")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", no_real_process)
     monkeypatch.delenv("JARVIS_TOOL_PERMISSION_MODE", raising=False)
     monkeypatch.delenv("JARVIS_TRUST_MODEL_CONFIRMATION", raising=False)
     _reset()
-    yield types.SimpleNamespace(store=store, clock=clock, docs=docs)
+    yield types.SimpleNamespace(store=store, clock=clock, docs=docs, trace=traced)
     _reset()
 
 
@@ -193,6 +201,9 @@ async def test_wrong_pin_fails_and_logs_without_the_pin(env, caplog):
     logged = caplog.text.replace(action_id, "")
     assert "failures=1/3" in logged
     assert "wrongpin" not in logged and PIN not in logged
+    attempts = [e for e in env.trace if e.get("event") == "authz.attempt" or e.get("name") == "authz.attempt"]
+    assert attempts, "the attempt should be traced"
+    assert "wrongpin" not in json.dumps(env.trace, default=str)  # traces carry outcomes, never the PIN
 
 
 async def test_expired_grant_fails(env):
@@ -439,12 +450,21 @@ async def test_voice_cannot_approve(env):
 # --------------------------------------------------------------- HTTP routes
 
 
-def test_authorize_routes_are_loopback_only(env):
+@pytest.fixture
+def client(monkeypatch, tmp_path):
+    """Test client for the real app; its remote-access PIN files go to tmp_path, not the data dir."""
     from fastapi.testclient import TestClient
 
+    from jarvis.core import auth
+
+    monkeypatch.setattr(auth, "PIN_HASH_FILE", tmp_path / "remote-pin.hash")
+    monkeypatch.setattr(auth, "PIN_SALT_FILE", tmp_path / "remote-pin.salt")
     from jarvis.core import server
 
-    client = TestClient(server.app, client=("127.0.0.1", 50000))
+    return TestClient(server.app, client=("127.0.0.1", 50000))
+
+
+def test_authorize_routes_are_loopback_only(env, client):
     relayed = {"x-forwarded-for": "203.0.113.7", "x-jarvis-client": "test"}  # a tunnelled browser
     for path, body in (
         ("/tools/authorize", {"action_id": "x", "pin": PIN}),
@@ -545,12 +565,7 @@ def test_only_reviewed_modules_dispatch_from_the_registry():
     assert users <= reviewed, f"unreviewed TOOL_REGISTRY users: {sorted(users - reviewed)}"
 
 
-def test_validation_errors_never_echo_the_submitted_pin(env):
-    from fastapi.testclient import TestClient
-
-    from jarvis.core import server
-
-    client = TestClient(server.app, client=("127.0.0.1", 50000))
+def test_validation_errors_never_echo_the_submitted_pin(env, client):
     for body in ({"action_id": "x", "pin": 135790}, {"action_id": "x", "pin": "135790" * 10}, {"pin": "135790"}):
         response = client.post("/tools/authorize", json=body)
         assert response.status_code == 422
