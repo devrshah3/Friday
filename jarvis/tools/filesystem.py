@@ -371,6 +371,33 @@ class TrashTarget(NamedTuple):
     inode: int
 
 
+def _device(path: Path) -> int:
+    return path.stat().st_dev
+
+
+def _mount_root(path: Path) -> Path:
+    current = path
+    while not os.path.ismount(current) and current.parent != current:
+        current = current.parent
+    return current
+
+
+def volume_has_recoverable_trash(path: Path) -> bool:
+    """True if Finder would move this file to a Trash it can be restored from.
+
+    Finder keeps deleted files on the user's Trash (same volume as ~/.Trash) or a
+    per-volume ``.Trashes`` folder. On volumes with neither (network shares such
+    as SMB/AFP/NFS) it deletes immediately, which trash_file must never cause.
+    """
+    try:
+        home_trash = Path.home() / ".Trash"
+        if home_trash.is_dir() and _device(home_trash) == _device(path):
+            return True
+        return (_mount_root(path) / ".Trashes").is_dir()
+    except OSError:
+        return False
+
+
 def prepare_trash(path: str) -> TrashTarget:
     """Validate one path for trash_file and describe it, or raise TrashRefused.
 
@@ -391,6 +418,11 @@ def prepare_trash(path: str) -> TrashTarget:
         raise TrashRefused(f"{resolved} is a folder; trash_file only moves single files.")
     if not resolved.is_file():
         raise TrashRefused(f"{resolved} is not a regular file.")
+    if not volume_has_recoverable_trash(resolved):
+        raise TrashRefused(
+            f"{resolved} is on a volume without a recoverable Trash (for example a network share), "
+            "where Finder would delete it permanently; it will not be trashed."
+        )
     stat = resolved.stat()
     return TrashTarget(resolved, stat.st_size, stat.st_mtime_ns, stat.st_ino)
 

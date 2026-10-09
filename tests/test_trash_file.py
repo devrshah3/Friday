@@ -28,6 +28,7 @@ def roots(monkeypatch, tmp_path):
     outside = tmp_path / "elsewhere"
     for folder in (home, docs, outside):
         folder.mkdir()
+    (home / ".Trash").mkdir()  # the user's Trash, on the same device as the test files
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("FRIDAY_ALLOWED_ROOTS", str(docs))
     return types.SimpleNamespace(home=home, docs=docs, outside=outside)
@@ -127,6 +128,36 @@ def test_refuses_credential_files(roots):
     key = roots.docs / "id_rsa"
     key.write_text("x")
     refused(key, "credential")
+
+
+def test_refuses_files_on_a_volume_without_a_recoverable_trash(roots, monkeypatch):
+    """Finder permanently deletes on network shares; trash_file must refuse rather than do that."""
+    target = roots.docs / "report.txt"
+    target.write_text("hello")
+    monkeypatch.setattr(filesystem, "_device", lambda p: 1 if p.name == ".Trash" else 2)  # different volume
+    monkeypatch.setattr(filesystem, "_mount_root", lambda p: roots.outside)  # mount root has no .Trashes
+    refused(target, "recoverable Trash")
+    assert target.exists()
+
+
+def test_accepts_a_removable_volume_that_has_a_trashes_folder(roots, monkeypatch):
+    target = roots.docs / "report.txt"
+    target.write_text("hello")
+    (roots.outside / ".Trashes").mkdir()
+    monkeypatch.setattr(filesystem, "_device", lambda p: 1 if p.name == ".Trash" else 2)
+    monkeypatch.setattr(filesystem, "_mount_root", lambda p: roots.outside)
+    assert prepare_trash(str(target)).path == target.resolve()
+
+
+def test_a_volume_that_cannot_be_inspected_is_treated_as_unsafe(roots, monkeypatch):
+    target = roots.docs / "report.txt"
+    target.write_text("hello")
+
+    def boom(_path):
+        raise OSError("cannot stat")
+
+    monkeypatch.setattr(filesystem, "_device", boom)
+    refused(target, "recoverable Trash")
 
 
 @pytest.mark.parametrize("bad", ["", "   ", "relative/file.txt", "~/definitely-missing-file.txt"])

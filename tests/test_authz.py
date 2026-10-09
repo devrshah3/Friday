@@ -46,6 +46,7 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr(authz, "_now", lambda: clock["t"])
     docs = tmp_path / "docs"
     docs.mkdir()
+    (tmp_path / "home" / ".Trash").mkdir(parents=True)  # a recoverable Trash on the same device
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("FRIDAY_ALLOWED_ROOTS", str(docs))
     monkeypatch.setattr(permissions, "DB_PATH", tmp_path / "audit.db")
