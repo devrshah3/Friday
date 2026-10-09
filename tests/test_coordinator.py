@@ -9,6 +9,7 @@ from jarvis.agent.coordinator import (
     classify_subtasks_batch,
     find_parallel_groups,
 )
+from jarvis.config import settings
 
 
 class TestAgentType:
@@ -356,7 +357,8 @@ class TestAgentCoordinator:
         coord = AgentCoordinator()
         for _agent_type, profile in coord.profiles.items():
             assert len(profile.system_prompt) > 50
-            assert "Address" in profile.system_prompt or "specialty" in profile.system_prompt
+            assert settings.USER_ADDRESS_RULE in profile.system_prompt  # neutral/USER_NAME address rule
+            assert "sir" not in profile.system_prompt.lower().split()
 
 
 class TestCoordinatorIntegration:
