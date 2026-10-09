@@ -399,7 +399,7 @@ def submit_pin(action_id: str, pin: str, *, is_local: bool) -> PinResult:
 
     request = _requests.get(action_id)
     action = pending_actions.get_authorization(action_id)
-    if request is None or action is None or _now() - action.created_at > PIN_PROMPT_TIMEOUT_S:
+    if request is None or action is None:  # settled, cancelled or timed out
         return PinResult(False, "That authorization request is no longer pending.")
     stored = get_secret(PIN_SECRET_NAME)
     if not stored:
