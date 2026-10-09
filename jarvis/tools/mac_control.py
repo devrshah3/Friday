@@ -2,6 +2,8 @@
 import asyncio
 import logging
 import os
+import re
+import urllib.parse
 from pathlib import Path
 
 from jarvis.tools import filesystem
@@ -122,34 +124,108 @@ async def get_frontmost_application() -> str:
     return await run_applescript(script)
 
 
+MAX_URL_LENGTH = 2048
+DEFAULT_BROWSER = "Google Chrome"
+ALLOWED_BROWSERS = frozenset({
+    "Google Chrome", "Safari", "Firefox", "Microsoft Edge", "Brave Browser", "Arc",
+})
+# A clear domain: dotted labels ending in an alphabetic TLD, optional port and path.
+_DOMAIN_RE = re.compile(
+    r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}(?::\d{1,5})?(?:[/?#]\S*)?$",
+    re.IGNORECASE,
+)
+_SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.\-]*:", re.IGNORECASE)
+_HOST_PORT_RE = re.compile(r"^[^\s/:@]+:\d{1,5}(?:[/?#]|$)")
+
+
+def validate_web_url(url: str) -> tuple[str, str]:
+    """Accept only a plain http/https URL. Returns (url, "") or ("", reason).
+
+    Refuses file:, javascript:, data: and custom schemes, links with embedded
+    credentials, and anything with whitespace or control characters.
+    """
+    url = url.strip() if isinstance(url, str) else ""
+    if not url:
+        return "", "No URL given."
+    if len(url) > MAX_URL_LENGTH:
+        return "", "That URL is too long."
+    if any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in url):
+        return "", "That URL contains spaces or control characters."
+    try:
+        parts = urllib.parse.urlsplit(url)
+        hostname = parts.hostname
+        parts.port  # noqa: B018 - raises ValueError on a malformed port
+    except ValueError:
+        return "", "That is not a valid URL."
+    if parts.scheme.lower() not in ("http", "https"):
+        return "", "Only http and https links can be opened."
+    if not hostname:
+        return "", "That URL has no host."
+    if parts.username is not None or parts.password is not None:
+        return "", "Links with embedded credentials are not opened."
+    return url, ""
+
+
+def website_to_url(site: str) -> tuple[str, str]:
+    """Turn an http(s) URL or a site name into a URL to open. Returns (url, "") or ("", reason).
+
+    A bare name that is not a clear domain ("best pizza", "weather") becomes a
+    Google search rather than a guessed domain. Non-http schemes are refused.
+    """
+    text = site.strip() if isinstance(site, str) else ""
+    if not text:
+        return "", "No website given."
+    if text.lower().startswith(("http://", "https://")):
+        return validate_web_url(text)
+    has_space = any(ch.isspace() for ch in text)
+    if not has_space and _SCHEME_RE.match(text) and not _HOST_PORT_RE.match(text):
+        return "", "Only http and https links can be opened."
+    if not has_space and _DOMAIN_RE.match(text):
+        return validate_web_url(f"https://{text}")
+    if len(text) > 500 or any(ord(ch) < 32 or ord(ch) == 127 for ch in text):
+        return "", "That search is too long or contains control characters."
+    return f"https://www.google.com/search?q={urllib.parse.quote_plus(text)}", ""
+
+
+async def _open_url_in(app: str | None, url: str) -> str:
+    """Open a validated URL with ``open`` (URL passed as an argument, never scripted)."""
+    args = ["-a", app, url] if app else [url]
+    error = await _run_open(*args)
+    if error:
+        return f"Failed to open URL: {error}"
+    return ""
+
+
+async def open_website(site: str) -> str:
+    """Open an http/https URL, or a site name, in Google Chrome."""
+    url, reason = website_to_url(site)
+    if not url:
+        return f"Cannot open: {reason}"
+    logger.info("Opening website: %s", url)
+    error = await _open_url_in(DEFAULT_BROWSER, url)
+    return error or f"Opened {url} in {DEFAULT_BROWSER}."
+
+
 async def open_url(url: str) -> str:
-    """Open a URL in the default browser."""
-    logger.info("Opening URL: %s", url)
-    result = await run_applescript(f'open location "{_escape_applescript(url)}"')
-    if result.startswith("Error"):
-        return f"Failed to open URL: {result}"
-    return f"Opened {url} in browser."
+    """Open an http/https URL in the default browser."""
+    clean, reason = validate_web_url(url)
+    if not clean:
+        return f"Cannot open: {reason}"
+    logger.info("Opening URL: %s", clean)
+    error = await _open_url_in(None, clean)
+    return error or f"Opened {clean} in browser."
 
 
-async def open_url_in_browser(url: str, browser: str = "Google Chrome") -> str:
-    """Open a URL in a specific browser application."""
-    logger.info("Opening URL '%s' in %s", url, browser)
-    safe_browser = _escape_applescript(browser)
-    safe_url = _escape_applescript(url)
-    script = f'''
-    tell application "{safe_browser}"
-        activate
-        open location "{safe_url}"
-    end tell
-    '''
-    result = await run_applescript(script)
-    if result.startswith("Error"):
-        logger.warning("Direct URL open in %s failed, trying fallback.", browser)
-        await run_applescript(f'tell application "{safe_browser}" to activate')
-        result = await run_applescript(f'open location "{safe_url}"')
-        if result.startswith("Error"):
-            return f"Failed to open URL in {browser}: {result}"
-    return f"Opened {url} in {browser}."
+async def open_url_in_browser(url: str, browser: str = DEFAULT_BROWSER) -> str:
+    """Open an http/https URL in one of the known browsers."""
+    clean, reason = validate_web_url(url)
+    if not clean:
+        return f"Cannot open: {reason}"
+    if browser not in ALLOWED_BROWSERS:
+        return f"Cannot open: '{browser}' is not a supported browser ({', '.join(sorted(ALLOWED_BROWSERS))})."
+    logger.info("Opening URL '%s' in %s", clean, browser)
+    error = await _open_url_in(browser, clean)
+    return error or f"Opened {clean} in {browser}."
 
 
 async def search_in_browser(query: str, browser: str = "Google Chrome") -> str:
