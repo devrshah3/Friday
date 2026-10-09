@@ -1,10 +1,14 @@
 """JARVIS File System Tools: safe file operations for managing files and folders."""
+import asyncio
 import fnmatch
 import logging
+import os
 import shutil
+import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from typing import NamedTuple
 
 logger = logging.getLogger("jarvis.tools.filesystem")
 
@@ -287,6 +291,156 @@ async def get_file_info(path: str) -> str:
         return f"Error getting info: {e}"
 
 
+# Folders the open/reveal/trash tools may touch, under the user's home. More can
+# be added with FRIDAY_ALLOWED_ROOTS (absolute paths separated by os.pathsep).
+DEFAULT_ALLOWED_ROOT_NAMES = ("Documents", "Downloads", "Desktop")
+
+
+def allowed_roots() -> list[Path]:
+    """Resolved folders that open_file, reveal_file and trash_file may act inside."""
+    home = Path.home()
+    candidates = [home / name for name in DEFAULT_ALLOWED_ROOT_NAMES]
+    for raw in os.environ.get("FRIDAY_ALLOWED_ROOTS", "").split(os.pathsep):
+        raw = raw.strip()
+        if not raw:
+            continue
+        extra = Path(raw).expanduser()
+        if not extra.is_absolute():
+            logger.warning("Ignoring non-absolute FRIDAY_ALLOWED_ROOTS entry: %s", raw)
+            continue
+        candidates.append(extra)
+
+    roots: list[Path] = []
+    for candidate in candidates:
+        try:
+            root = candidate.resolve()
+        except (OSError, RuntimeError):
+            continue
+        if root == Path(root.anchor) or root == home.resolve():
+            logger.warning("Ignoring overly broad allowed root: %s", root)
+            continue
+        roots.append(root)
+    return roots
+
+
+def containing_root(resolved: Path) -> Path | None:
+    """Return the allowed root that contains an already-resolved path, if any."""
+    for root in allowed_roots():
+        if resolved.is_relative_to(root):
+            return root
+    return None
+
+
+def resolve_in_allowed_roots(path: str) -> tuple[Path | None, str]:
+    """Resolve symlinks, then require the target to exist inside an allowed root.
+
+    Returns (resolved, "") or (None, reason). The check runs on the resolved
+    path, so a symlink in Documents pointing outside the roots is refused.
+    """
+    if not isinstance(path, str) or not path.strip() or "\x00" in path:
+        return None, "Provide a single file path."
+    safe, reason = _is_path_safe(path)
+    if not safe:
+        return None, reason
+    raw = Path(path).expanduser()
+    if not raw.is_absolute():
+        return None, "Use a full path (starting with / or ~)."
+    try:
+        resolved = raw.resolve(strict=True)
+    except FileNotFoundError:
+        return None, f"Not found: {path}"
+    except (OSError, RuntimeError) as exc:
+        return None, f"Cannot resolve path: {exc}"
+    safe, reason = _is_path_safe(str(resolved))
+    if not safe:
+        return None, reason
+    if containing_root(resolved) is None:
+        folders = ", ".join(str(r) for r in allowed_roots())
+        return None, f"{resolved} is outside the allowed folders ({folders})."
+    return resolved, ""
+
+
+class TrashRefused(Exception):
+    """A trash request that must not proceed; the message says why."""
+
+
+class TrashTarget(NamedTuple):
+    path: Path
+    size: int
+    mtime_ns: int
+    inode: int
+
+
+def prepare_trash(path: str) -> TrashTarget:
+    """Validate one path for trash_file and describe it, or raise TrashRefused.
+
+    Refuses directories (including .app bundles), hidden files, special files and
+    anything that, once symlinks are resolved, is outside the allowed roots.
+    """
+    resolved, reason = resolve_in_allowed_roots(path)
+    if resolved is None:
+        raise TrashRefused(reason)
+    raw_name = Path(path).expanduser().name
+    root = containing_root(resolved)
+    relative_parts = resolved.relative_to(root).parts if root else resolved.parts
+    if raw_name.startswith(".") or any(part.startswith(".") for part in relative_parts):
+        raise TrashRefused(f"{resolved} is a hidden file (or inside a hidden folder); it will not be trashed.")
+    if any(part.lower().endswith(".app") for part in relative_parts):
+        raise TrashRefused(f"{resolved} is part of an app bundle; it will not be trashed.")
+    if resolved.is_dir():
+        raise TrashRefused(f"{resolved} is a folder; trash_file only moves single files.")
+    if not resolved.is_file():
+        raise TrashRefused(f"{resolved} is not a regular file.")
+    stat = resolved.stat()
+    return TrashTarget(resolved, stat.st_size, stat.st_mtime_ns, stat.st_ino)
+
+
+async def trash_file(path: str) -> str:
+    """Move one file to the macOS Trash (recoverable). Needs PIN authorization.
+
+    Never deletes permanently: there is no rm, no recursive delete and no
+    empty-trash tool. The path reaches AppleScript as an argument, never as
+    part of the script text.
+    """
+    if sys.platform != "darwin":
+        return "trash_file only works on macOS."
+    try:
+        target = prepare_trash(path)
+    except TrashRefused as exc:
+        return f"Cannot trash: {exc}"
+
+    from jarvis.core import authz
+
+    problem = authz.tool_guard("trash_file")
+    if problem:
+        return problem
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "osascript",
+            "-e", "on run argv",
+            "-e", 'tell application "Finder" to delete (POSIX file (item 1 of argv) as alias)',
+            "-e", "end run",
+            str(target.path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            _, stderr = await asyncio.wait_for(process.communicate(), timeout=30.0)
+        except TimeoutError:
+            process.kill()
+            return "Trash request timed out; the file may not have been moved."
+    except Exception as exc:
+        return f"Error moving to Trash: {exc}"
+
+    if process.returncode != 0:
+        return f"Could not move to Trash: {stderr.decode().strip() or 'Finder reported an error'}"
+    if target.path.exists():
+        return f"Finder did not move {target.path} to the Trash."
+    logger.info("Moved %s to the Trash.", target.path)
+    return f"Moved {target.path.name} ({_format_size(target.size)}) to the Trash. Restore it from the Trash with Put Back."
+
+
 def _format_size(size: int) -> str:
     """Convert bytes to human-readable format (B, KB, MB, GB, TB)."""
     size_float = float(size)
@@ -295,3 +449,6 @@ def _format_size(size: int) -> str:
             return f"{size_float:.1f} {unit}"
         size_float /= 1024
     return f"{size_float:.1f} TB"
+
+
+format_size = _format_size
