@@ -25,7 +25,7 @@ Optional (recommended):
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/YOUR-USERNAME/Friday.git
+git clone https://github.com/devrshah3/Friday.git
 cd Friday
 
 # 2. Run the setup script (installs Python deps, pulls Ollama models)

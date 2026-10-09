@@ -5,9 +5,9 @@ Drafts for the v1.0.0 launch. Everything here needs the owner to post or run; no
 ## 1. Repository settings (run once)
 
 ```bash
-gh repo edit YOUR-USERNAME/Friday \
+gh repo edit devrshah3/Friday \
   --description "The open-source JARVIS for your Mac: voice, 99 tools, MCP, Agent Skills, Telegram. OpenAI, Claude, or fully offline (Ollama + Apple on-device)." \
-  --homepage "https://github.com/YOUR-USERNAME/Friday#readme" \
+  --homepage "https://github.com/devrshah3/Friday#readme" \
   --enable-discussions \
   --add-topic mcp --add-topic openai --add-topic ai-agent --add-topic local-llm \
   --add-topic voice-assistant --add-topic macos --add-topic ollama --add-topic agent-skills
@@ -69,7 +69,7 @@ Upload it to YouTube and link it under the GIF in the README.
 
 ### X / Threads
 
-> I built an open-source JARVIS for the Mac. 🎙️ Voice, 99 tools, MCP both ways, Agent Skills, Telegram. OpenAI, Claude, or fully offline with Ollama + Apple's on-device model. Risky actions wait for your OK. MIT. github.com/YOUR-USERNAME/Friday [attach the demo GIF]
+> I built an open-source JARVIS for the Mac. 🎙️ Voice, 99 tools, MCP both ways, Agent Skills, Telegram. OpenAI, Claude, or fully offline with Ollama + Apple's on-device model. Risky actions wait for your OK. MIT. github.com/devrshah3/Friday [attach the demo GIF]
 
 ### Product Hunt
 

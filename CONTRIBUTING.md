@@ -7,7 +7,7 @@ Thanks for helping build JARVIS. Bug reports, fixes, new tools, docs and design 
 JARVIS runs on macOS (Apple Silicon recommended) with Python 3.11+ and Node.js 18+.
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/Friday.git
+git clone https://github.com/devrshah3/Friday.git
 cd Friday
 ./setup.sh                      # Python venv, dependencies, Ollama models
 cp .env.example .env            # add OPENAI_API_KEY (or run fully local with Ollama)
@@ -42,7 +42,7 @@ Guidelines:
 
 ## Where to start
 
-Issues labelled [`good first issue`](https://github.com/YOUR-USERNAME/Friday/labels/good%20first%20issue) are scoped for newcomers. [`docs/ROADMAP.md`](docs/ROADMAP.md) lists the bigger pieces of work in progress. If you want to take something large, open an issue or discussion first so we can agree on the approach.
+Issues labelled [`good first issue`](https://github.com/devrshah3/Friday/labels/good%20first%20issue) are scoped for newcomers. [`docs/ROADMAP.md`](docs/ROADMAP.md) lists the bigger pieces of work in progress. If you want to take something large, open an issue or discussion first so we can agree on the approach.
 
 ## Reporting security issues
 

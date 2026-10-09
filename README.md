@@ -6,7 +6,7 @@
 <h3 align="center">The open-source FRIDAY for your Mac: talk to it, let it act, run it fully offline.</h3>
 
 <p align="center">
-  <a href="https://github.com/YOUR-USERNAME/Friday/actions/workflows/ci.yml"><img src="https://github.com/YOUR-USERNAME/Friday/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/devrshah3/Friday/actions/workflows/ci.yml"><img src="https://github.com/devrshah3/Friday/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <img src="https://img.shields.io/badge/models-OpenAI%20%7C%20Claude%20%7C%20Ollama%20%7C%20Apple-412991?style=flat-square" alt="Models: OpenAI, Claude, Ollama, Apple" />
   <img src="https://img.shields.io/badge/MCP-client%20%2B%20server-0A7BBB?style=flat-square" alt="MCP client and server" />
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Docker-999999?style=flat-square&logo=apple&logoColor=white" alt="macOS, Docker" />
@@ -35,7 +35,7 @@ Say "Hey JARVIS" and it answers in a British voice. You can ask it to check your
 | 🔒 **Safe by default** | Human approval for high-risk actions, local-origin checks, PIN-protected remote access, and secrets in the macOS Keychain. |
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/Friday.git && cd Friday
+git clone https://github.com/devrshah3/Friday.git && cd Friday
 ./setup.sh && echo 'OPENAI_API_KEY=sk-...' > .env     # or OFFLINE_MODE=true for local models only
 ./start.sh full
 ```
@@ -120,7 +120,7 @@ Built-in Cloudflare Tunnel support is available when you set `JARVIS_ENABLE_TUNN
 
 ```bash
 # Clone
-git clone https://github.com/YOUR-USERNAME/Friday.git
+git clone https://github.com/devrshah3/Friday.git
 cd Friday
 
 # Setup (installs dependencies, pulls Ollama models)
