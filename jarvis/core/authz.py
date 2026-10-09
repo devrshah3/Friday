@@ -23,9 +23,11 @@ already has the machine).
 """
 from __future__ import annotations
 
+import functools
 import getpass
 import hashlib
 import hmac
+import inspect
 import json
 import logging
 import os
@@ -277,6 +279,26 @@ def tool_guard(tool_name: str) -> str:
     if grant is None or grant.state != "used" or grant.tool_name != tool_name:
         return f"{tool_name} needs PIN authorization and cannot be run directly."
     return ""
+
+
+def guarded(tool_name: str, fn: Callable[..., Any]) -> Callable[..., Any]:
+    """Wrap a registry function so it only runs under a grant the executor consumed.
+
+    Applied to every requires_authorization tool in the tool registry: any code that
+    looks a tool up by name and calls it (an MCP bridge, a runner, a future
+    dispatcher) is refused unless it went through the executor's PIN flow.
+    """
+
+    @functools.wraps(fn)
+    async def wrapper(*args: Any, **kwargs: Any) -> Any:
+        problem = tool_guard(tool_name)
+        if problem:
+            return problem
+        result = fn(*args, **kwargs)
+        return await result if inspect.isawaitable(result) else result
+
+    wrapper.__authz_guarded__ = True  # type: ignore[attr-defined]
+    return wrapper
 
 
 # ---------------------------------------------------------------- UI channels

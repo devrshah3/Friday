@@ -2625,6 +2625,15 @@ TOOL_REGISTRY = {
     "get_note_folders": notes_access.get_note_folders,
 }
 
+# Registry-level enforcement of requires_authorization: these entries refuse to
+# run unless the executor consumed a PIN-backed grant (see jarvis.core.authz).
+from jarvis.core import authz as _authz  # noqa: E402
+from jarvis.core.permissions import TOOL_PERMISSIONS as _TOOL_PERMISSIONS  # noqa: E402
+
+for _name, _fn in list(TOOL_REGISTRY.items()):
+    if _name in _TOOL_PERMISSIONS and _TOOL_PERMISSIONS[_name].requires_authorization:
+        TOOL_REGISTRY[_name] = _authz.guarded(_name, _fn)
+
 
 def get_tool_names() -> list[str]:
     """Return all available tool names."""

@@ -502,3 +502,44 @@ async def test_executor_trashes_after_the_pin_and_the_grant_is_single_use(env, m
     again = make_file(env, "report.txt")
     blocked = await executor._execute_tool("trash_file", {"path": str(again)})
     assert "was not run" in blocked and again.exists() and len(launched) == 1
+
+
+# ------------------------------------------------- every path that can run a tool
+
+
+async def test_registry_entry_refuses_a_direct_call(env, monkeypatch):
+    """A dispatcher that looks the tool up and calls it, bypassing the executor, is refused."""
+    monkeypatch.setattr(filesystem, "sys", types.SimpleNamespace(platform="darwin"))
+    target = make_file(env)
+    result = await TOOL_REGISTRY["trash_file"](path=str(target))
+    assert "needs PIN authorization" in result and target.exists()
+
+
+def test_every_authorization_tool_is_guarded_in_the_registry():
+    gated = [name for name, perm in TOOL_PERMISSIONS.items() if perm.requires_authorization]
+    assert "trash_file" in gated
+    for name in gated:
+        assert getattr(TOOL_REGISTRY[name], "__authz_guarded__", False), name
+
+
+def test_only_reviewed_modules_dispatch_from_the_registry():
+    """Tripwire: a new module that runs tools by name must be reviewed for authorization.
+
+    Today only the executor runs registry tools (MCP server, jobs, workflows, the
+    scheduler, routines, channels and the coordinator all go through it). The other
+    entries only register or inspect tools.
+    """
+    root = Path(__file__).resolve().parents[1] / "jarvis"
+    reviewed = {
+        "agent/executor.py",       # the one place tools run: PIN flow + grant consumption
+        "agent/tools_schema.py",   # defines the registry and guards authorization tools
+        "agent/platform_tools.py", # reads the function's module only
+        "core/mcp_client.py",      # registers third-party mcp__ tools
+        "mcp_server.py",           # exposes tools but calls executor._execute_tool
+    }
+    users = {
+        str(path.relative_to(root))
+        for path in root.rglob("*.py")
+        if "TOOL_REGISTRY" in path.read_text(encoding="utf-8")
+    }
+    assert users <= reviewed, f"unreviewed TOOL_REGISTRY users: {sorted(users - reviewed)}"

@@ -89,6 +89,8 @@ def _authorization_tool_errors() -> list[str]:
             errors.append(f"{name}: requires_authorization but is not in cache.UNCACHEABLE_TOOLS")
         if name in cache.TOOL_CACHE_TTLS:
             errors.append(f"{name}: requires_authorization but has a cache TTL")
+        if not getattr(TOOL_REGISTRY[name], "__authz_guarded__", False):
+            errors.append(f"{name}: requires_authorization but its registry entry is not authz-guarded")
     return errors
 
 
