@@ -1,6 +1,8 @@
 """Tests for tool permissions and audit behavior."""
 import sqlite3
 
+import pytest
+
 from jarvis.core import permissions
 from jarvis.core.confirmation import confirmed_scope
 from jarvis.core.permissions import Capability, RiskLevel, assess_tool_call, list_tool_audit, record_tool_audit
@@ -36,11 +38,19 @@ def test_server_granted_confirmation_allows_high_risk_tool(monkeypatch):
     assert decision.allowed is True
 
 
-def test_env_opt_in_restores_model_confirmation(monkeypatch):
+def test_model_confirmation_is_ignored_even_with_the_old_env_opt_in(monkeypatch):
     monkeypatch.setenv("JARVIS_TOOL_PERMISSION_MODE", "enforce")
-    monkeypatch.setenv("JARVIS_TRUST_MODEL_CONFIRMATION", "true")
-    assert assess_tool_call("send_email", {"to": "x@y.com", "confirmed": True}).allowed is True
+    monkeypatch.setenv("JARVIS_TRUST_MODEL_CONFIRMATION", "true")  # removed escape hatch: no effect
+    assert assess_tool_call("send_email", {"to": "x@y.com", "confirmed": True}).allowed is False
     assert assess_tool_call("send_email", {"to": "x@y.com"}).allowed is False
+
+
+@pytest.mark.parametrize("mode", ["enforce", "audit"])
+def test_call_is_confirmed_never_reads_the_model_flag(monkeypatch, mode):
+    monkeypatch.setenv("JARVIS_TOOL_PERMISSION_MODE", mode)
+    assert permissions.call_is_confirmed({"confirmed": True, "authorized": True}) is False
+    with confirmed_scope():
+        assert permissions.call_is_confirmed({}) is True
 
 
 def test_record_tool_audit_redacts_sensitive_payload(tmp_path, monkeypatch):

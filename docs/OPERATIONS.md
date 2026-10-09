@@ -50,9 +50,11 @@ Tool execution audit records are written to:
 data/jarvis_security_audit.db
 ```
 
-Set `JARVIS_TOOL_PERMISSION_MODE=enforce` to block tools that require explicit
-confirmation when a tool call does not include `confirmed=true`. The default is
-`audit`, which records classifications without disrupting current workflows.
+The default `JARVIS_TOOL_PERMISSION_MODE=enforce` blocks tools that require
+confirmation until the app confirms them. A `confirmed`/`authorized` value in a
+tool call is ignored. `audit` (trusted local development only) records
+classifications without blocking confirmation-level tools; PIN-gated tools stay
+blocked in every mode.
 
 ## Background Jobs
 

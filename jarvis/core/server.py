@@ -11,6 +11,8 @@ from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, File, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -723,6 +725,13 @@ async def csrf_protection(request: Request, call_next):
             content={"error": "Missing X-JARVIS-Client header. CSRF protection."},
         )
     return await call_next(request)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    """422 without echoing what was submitted: bodies can hold PINs and API keys."""
+    errors = [{k: v for k, v in err.items() if k not in ("input", "ctx")} for err in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(errors)})
 
 
 _startup_pin = auth.initialize_pin()

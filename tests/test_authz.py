@@ -543,3 +543,22 @@ def test_only_reviewed_modules_dispatch_from_the_registry():
         if "TOOL_REGISTRY" in path.read_text(encoding="utf-8")
     }
     assert users <= reviewed, f"unreviewed TOOL_REGISTRY users: {sorted(users - reviewed)}"
+
+
+def test_validation_errors_never_echo_the_submitted_pin(env):
+    from fastapi.testclient import TestClient
+
+    from jarvis.core import server
+
+    client = TestClient(server.app, client=("127.0.0.1", 50000))
+    for body in ({"action_id": "x", "pin": 135790}, {"action_id": "x", "pin": "135790" * 10}, {"pin": "135790"}):
+        response = client.post("/tools/authorize", json=body)
+        assert response.status_code == 422
+        assert "135790" not in response.text
+
+
+def test_the_pin_hash_is_unreachable_from_the_settings_api():
+    from jarvis.core import settings_api
+
+    assert authz.PIN_SECRET_NAME not in settings_api.SECRET_KEYS
+    assert authz.PIN_SECRET_NAME not in settings_api.SAFE_CONFIG_KEYS
