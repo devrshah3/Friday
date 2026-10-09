@@ -1,6 +1,10 @@
 """JARVIS macOS Control Tools: AppleScript-based automation for Mac apps and system."""
 import asyncio
 import logging
+import os
+from pathlib import Path
+
+from jarvis.tools import filesystem
 
 logger = logging.getLogger("jarvis.tools.mac_control")
 
@@ -157,21 +161,83 @@ async def search_in_browser(query: str, browser: str = "Google Chrome") -> str:
     return await open_url_in_browser(search_url, browser)
 
 
-async def open_file(file_path: str) -> str:
-    """Open a file with its default application."""
-    logger.info("Opening file: %s", file_path)
+# Types that run code or install software when opened. open_file reveals these in
+# Finder instead of launching them.
+EXECUTABLE_EXTENSIONS = frozenset({
+    ".app", ".command", ".sh", ".pkg", ".dmg", ".jar", ".scpt", ".workflow",
+    ".terminal", ".py",
+    ".mpkg", ".scptd", ".applescript", ".bash", ".zsh", ".csh", ".ksh",
+    ".action", ".webloc", ".inetloc", ".fileloc", ".url",
+})
+
+
+def _opens_as_program(raw_path: str, resolved: Path) -> bool:
+    """True if opening this path could run or install something."""
+    if Path(raw_path).expanduser().suffix.lower() in EXECUTABLE_EXTENSIONS:
+        return True
+    if resolved.suffix.lower() in EXECUTABLE_EXTENSIONS:
+        return True
+    if any(part.lower().endswith(".app") for part in resolved.parts):
+        return True
+    # An executable file with no telling extension would launch in Terminal.
+    return resolved.is_file() and os.access(resolved, os.X_OK)
+
+
+async def _run_open(*args: str) -> str:
+    """Run macOS ``open`` with arguments (no shell). Returns '' on success, else the error."""
     try:
         process = await asyncio.create_subprocess_exec(
-            "open", file_path,
+            "open", *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        _, stderr = await process.communicate()
-        if process.returncode != 0:
-            return f"Failed to open file: {stderr.decode().strip()}"
-        return f"Opened {file_path}."
+        try:
+            _, stderr = await asyncio.wait_for(process.communicate(), timeout=15.0)
+        except TimeoutError:
+            process.kill()
+            return "open timed out"
     except Exception as e:
-        return f"Error opening file: {e}"
+        return str(e)
+    if process.returncode != 0:
+        return stderr.decode().strip() or f"open exited with {process.returncode}"
+    return ""
+
+
+async def open_file(file_path: str) -> str:
+    """Open a file in its default app. Only inside the allowed folders.
+
+    Anything that can execute or install (.app, .sh, .pkg, .py, ...) is shown in
+    Finder instead of opened.
+    """
+    resolved, reason = filesystem.resolve_in_allowed_roots(file_path)
+    if resolved is None:
+        return f"Cannot open: {reason}"
+    if _opens_as_program(file_path, resolved):
+        logger.info("Revealing instead of opening executable type: %s", resolved)
+        error = await _run_open("-R", str(resolved))
+        if error:
+            return f"Failed to reveal {resolved}: {error}"
+        return (
+            f"{resolved.name} can run code or install software, so I did not open it. "
+            "I showed it in Finder instead."
+        )
+    logger.info("Opening file: %s", resolved)
+    error = await _run_open(str(resolved))
+    if error:
+        return f"Failed to open file: {error}"
+    return f"Opened {resolved}."
+
+
+async def reveal_file(file_path: str) -> str:
+    """Show a file or folder in Finder (open -R). Only inside the allowed folders."""
+    resolved, reason = filesystem.resolve_in_allowed_roots(file_path)
+    if resolved is None:
+        return f"Cannot reveal: {reason}"
+    logger.info("Revealing in Finder: %s", resolved)
+    error = await _run_open("-R", str(resolved))
+    if error:
+        return f"Failed to reveal {resolved}: {error}"
+    return f"Showed {resolved} in Finder."
 
 
 async def get_system_info() -> str:
