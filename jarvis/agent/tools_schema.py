@@ -489,8 +489,26 @@ TOOL_SCHEMAS = [
     },
     # ---- URLs and Browser ----
     {
+        "name": "open_website",
+        "description": (
+            "Open a website in Google Chrome. Accepts an http/https URL or a site name such as "
+            "'github.com'. A name that is not a clear domain opens a Google search instead. "
+            "Other schemes (file:, javascript:, data:) are refused. Prefer this to open_url."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "site": {
+                    "type": "string",
+                    "description": "An http/https URL, a domain like 'github.com', or words to search for",
+                },
+            },
+            "required": ["site"],
+        },
+    },
+    {
         "name": "open_url",
-        "description": "Open a URL in the user's default web browser.",
+        "description": "Open an http/https URL in the user's default web browser. Other schemes are refused.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -852,7 +870,11 @@ TOOL_SCHEMAS = [
     },
     {
         "name": "open_file",
-        "description": "Open a file with its default macOS application.",
+        "description": (
+            "Open a file in its default macOS app. Only files in Documents, Downloads, Desktop "
+            "(or other allowed folders). Programs and installers (.app, .sh, .py, .pkg, .dmg, ...) "
+            "are shown in Finder instead of opened."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -862,6 +884,43 @@ TOOL_SCHEMAS = [
                 },
             },
             "required": ["file_path"],
+        },
+    },
+    {
+        "name": "reveal_file",
+        "description": (
+            "Show a file or folder in Finder. Only inside Documents, Downloads, Desktop "
+            "(or other allowed folders)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Full path to the file or folder to show",
+                },
+            },
+            "required": ["file_path"],
+        },
+    },
+    {
+        "name": "trash_file",
+        "description": (
+            "Move ONE file to the macOS Trash (recoverable; never permanently deletes). The user must "
+            "type their PIN in the app to allow it, so tell them to expect the prompt. Refuses folders, "
+            "hidden files, app bundles and anything outside Documents, Downloads and Desktop. "
+            "Do not call this for several files at once, and never try to supply the PIN or an "
+            "'authorized' flag yourself."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Full path of the single file to move to the Trash",
+                },
+            },
+            "required": ["path"],
         },
     },
     # ---- Screen ----
@@ -2439,6 +2498,7 @@ TOOL_REGISTRY = {
     "get_running_applications": mac_control.get_running_applications,
     "get_frontmost_application": mac_control.get_frontmost_application,
     "open_url": mac_control.open_url,
+    "open_website": mac_control.open_website,
     "open_url_in_browser": mac_control.open_url_in_browser,
     "search_in_browser": mac_control.search_in_browser,
     "get_system_info": mac_control.get_system_info,
@@ -2460,6 +2520,8 @@ TOOL_REGISTRY = {
     "create_directory": filesystem.create_directory,
     "get_file_info": filesystem.get_file_info,
     "open_file": mac_control.open_file,
+    "reveal_file": mac_control.reveal_file,
+    "trash_file": filesystem.trash_file,
     # Screen
     "capture_screen": screen.capture_screen,
     "read_screen_text": screen.read_screen_text,

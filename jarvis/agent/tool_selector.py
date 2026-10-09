@@ -11,6 +11,7 @@ COMMON_TOOLS = {
     "get_frontmost_application",
     "open_application",
     "open_url",
+    "open_website",
     "get_user_profile",
     "use_skill",
 }
@@ -28,13 +29,14 @@ TOOL_GROUPS: dict[str, set[str]] = {
     "public_api_status": {"check_public_api_status"},
     "time_status": {"get_battery_status", "get_system_info", "get_running_applications", "get_frontmost_application"},
     "mac": {
-        "open_application", "close_application", "open_url", "open_url_in_browser",
+        "open_application", "close_application", "open_url", "open_website", "open_url_in_browser",
         "search_in_browser", "set_volume", "set_brightness", "send_notification",
         "get_clipboard", "set_clipboard", "paste_to_app", "write_to_app",
     },
     "files": {
         "list_directory", "read_file", "write_file", "search_files", "move_file",
-        "copy_file", "create_directory", "get_file_info", "open_file",
+        "copy_file", "create_directory", "get_file_info", "open_file", "reveal_file",
+        "trash_file",
     },
     "shell": set(),  # run_command and run_terminal_command_smart disabled by Friday hardening
     "web": {"search_web", "search_news", "search_and_read", "fetch_page_text", "fetch_page_links"},
@@ -84,7 +86,7 @@ KEYWORD_GROUPS: list[tuple[set[str], str]] = [
     ({"public api", "free api status", "provider status"}, "public_api_status"),
     ({"battery", "system", "status", "running apps", "frontmost", "current app"}, "time_status"),
     ({"open", "launch", "close app", "volume", "brightness", "notification", "clipboard", "paste"}, "mac"),
-    ({"file", "folder", "directory", "read", "write", "move", "copy", "project"}, "files"),
+    ({"file", "folder", "directory", "read", "write", "move", "copy", "project", "trash", "delete", "reveal", "finder"}, "files"),
     ({"terminal", "command", "shell", "process", "script"}, "shell"),
     ({"search", "web", "website", "url", "news", "page", "read online", "lookup"}, "web"),
     ({"browser", "chrome", "tab", "click", "screenshot", "form"}, "browser"),

@@ -97,6 +97,9 @@ TOOL_CACHE_TTLS: dict[str, float] = {
 }
 
 UNCACHEABLE_TOOLS: set[str] = {
+    "trash_file",
+    "reveal_file",
+    "open_website",
     "send_email",
     "create_calendar_event",
     "write_file",

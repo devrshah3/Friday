@@ -73,7 +73,22 @@ def validate_tool_contracts() -> list[str]:
     if missing_explicit_permissions:
         errors.append("missing explicit permissions: " + ", ".join(missing_explicit_permissions))
 
+    errors.extend(_authorization_tool_errors())
     errors.extend(_referenced_tool_errors())
+    return errors
+
+
+def _authorization_tool_errors() -> list[str]:
+    """PIN-gated tools must be explicit, never cached and never exposed over MCP."""
+    errors = []
+    for name in sorted(TOOL_REGISTRY):
+        permission = TOOL_PERMISSIONS.get(name)
+        if permission is None or not permission.requires_authorization:
+            continue
+        if name not in cache.UNCACHEABLE_TOOLS:
+            errors.append(f"{name}: requires_authorization but is not in cache.UNCACHEABLE_TOOLS")
+        if name in cache.TOOL_CACHE_TTLS:
+            errors.append(f"{name}: requires_authorization but has a cache TTL")
     return errors
 
 

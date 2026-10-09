@@ -271,7 +271,7 @@ _AGENT_TOOLS: dict[AgentType, list[str]] = {
     AgentType.CODER: [
         "read_file", "write_file", "list_directory", "search_files",
         "move_file", "copy_file", "create_directory", "get_file_info",
-        "open_file",
+        "open_file", "reveal_file",
         "get_clipboard", "set_clipboard",
     ],
     AgentType.BROWSER: [
@@ -281,18 +281,18 @@ _AGENT_TOOLS: dict[AgentType, list[str]] = {
         "browse_web", "browser_navigate", "browser_screenshot",
         "get_browser_state", "browser_switch_tab", "browser_upload_file",
         "close_browser",
-        "open_url", "open_url_in_browser", "search_in_browser",
+        "open_url", "open_website", "open_url_in_browser", "search_in_browser",
     ],
     AgentType.SYSTEM: [
         "open_application", "close_application",
         "get_running_applications", "get_frontmost_application",
-        "open_url", "open_url_in_browser",
+        "open_url", "open_website", "open_url_in_browser",
         "get_system_info", "get_battery_status",
         "set_volume", "set_brightness", "send_notification",
         "get_clipboard", "set_clipboard", "paste_to_app", "write_to_app",
         "list_directory", "read_file", "write_file", "search_files",
         "move_file", "copy_file", "create_directory", "get_file_info",
-        "open_file",
+        "open_file", "reveal_file", "trash_file",
         "capture_screen", "read_screen_text",
     ],
     AgentType.COMMUNICATOR: [
