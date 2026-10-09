@@ -25,13 +25,13 @@ MAX_VOICE_WORDS = 100
 
 # Patterns that break JARVIS character
 CORPORATE_PHRASES = {
-    "how can i help": "JARVIS does not ask 'how can I help'; he just acts",
-    "is there anything else": "JARVIS does not ask 'is there anything else'",
-    "i'd be happy to": "Too corporate; JARVIS says 'Will do, sir' or just does it",
-    "absolutely": "JARVIS does not use filler enthusiasm like 'Absolutely'",
-    "great question": "JARVIS never says 'great question'",
-    "as an ai": "JARVIS never breaks character with 'as an AI'",
-    "i cannot": "JARVIS says 'I'm afraid that's beyond my current capabilities, sir'",
+    "how can i help": "FRIDAY does not ask 'how can I help'; it just acts",
+    "is there anything else": "FRIDAY does not ask 'is there anything else'",
+    "i'd be happy to": "Too corporate; say 'Will do' or just do it",
+    "absolutely": "FRIDAY does not use filler enthusiasm like 'Absolutely'",
+    "great question": "FRIDAY never says 'great question'",
+    "as an ai": "FRIDAY never breaks character with 'as an AI'",
+    "i cannot": "Say plainly what is beyond current capabilities instead of 'I cannot'",
 }
 
 # User complaint patterns indicating satisfaction issues
@@ -43,9 +43,6 @@ COMPLAINT_PATTERNS = [
     r"you didn'?t",
     r"that'?s not what",
 ]
-
-# JARVIS should use "sir" frequently
-SIR_CHECK_WINDOW = 5  # Check last 5 responses
 
 
 @dataclass
@@ -74,7 +71,6 @@ class ConversationMonitor:
 
         self.total_analyzed = 0
         self.total_issues = 0
-        self._sir_usage_count = 0
 
     def analyze_response(self, user_text: str, jarvis_response: str) -> list[str]:
         """
@@ -107,10 +103,6 @@ class ConversationMonitor:
         # Check for markdown/formatting issues
         formatting_issues = self._check_formatting(jarvis_response)
         found_issues.extend(formatting_issues)
-
-        # Check "sir" usage across recent responses
-        sir_issues = self._check_sir_usage()
-        found_issues.extend(sir_issues)
 
         # Check user messages for complaint patterns
         complaint_issues = self._check_user_complaints(user_text)
@@ -187,7 +179,6 @@ class ConversationMonitor:
         self.user_history.clear()
         self.total_analyzed = 0
         self.total_issues = 0
-        self._sir_usage_count = 0
         logger.info("Conversation monitor reset")
 
     def _check_voice_suitability(self, response: str) -> list[str]:
@@ -238,11 +229,6 @@ class ConversationMonitor:
             if phrase in response_lower:
                 issues.append(issue_msg)
 
-        # Count "sir" usage
-        sir_count = len(re.findall(r'\bsir\b', response_lower))
-        if sir_count > 0:
-            self._sir_usage_count += sir_count
-
         return issues
 
     def _check_formatting(self, response: str) -> list[str]:
@@ -274,28 +260,6 @@ class ConversationMonitor:
 
         if re.search(r'^[-*+]\s', response, re.MULTILINE):
             issues.append("Response contains bullet points; TTS needs prose format")
-
-        return issues
-
-    def _check_sir_usage(self) -> list[str]:
-        """
-        Check if "sir" is used enough in recent responses.
-
-        JARVIS should use "sir" at least once in the last 5 responses.
-
-        Returns:
-            List of issue messages
-        """
-        issues = []
-
-        recent_responses = list(self.response_history)[-SIR_CHECK_WINDOW:]
-        if recent_responses:
-            sir_found = any(re.search(r'\bsir\b', r, re.IGNORECASE) for r in recent_responses)
-            if not sir_found:
-                issues.append(
-                    f"JARVIS has not used 'sir' in the last {SIR_CHECK_WINDOW} responses; "
-                    f"character consistency weakening"
-                )
 
         return issues
 
@@ -340,7 +304,7 @@ class ConversationMonitor:
             return "voice"
         elif any(x in msg_lower for x in ["memory", "recall", "continuity"]):
             return "memory"
-        elif any(x in msg_lower for x in ["sir", "character", "corporate", "phrase", "breach", "samantha"]):
+        elif any(x in msg_lower for x in ["character", "corporate", "phrase", "breach", "samantha"]):
             return "character"
         elif any(x in msg_lower for x in ["markdown", "bold", "header", "bullet", "em dash"]):
             return "formatting"
@@ -451,5 +415,4 @@ class ConversationMonitor:
             "issue_rate": stats["issue_rate"],
             "issue_categories": stats["issue_categories"],
             "recent_issues": self.get_recent_issues(limit=5),
-            "sir_usage_count": self._sir_usage_count,
         }

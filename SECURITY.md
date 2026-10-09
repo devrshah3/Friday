@@ -4,7 +4,7 @@ JARVIS runs on your own Mac with access to your files, browser, email, calendar 
 
 ## Reporting a vulnerability
 
-Please report vulnerabilities privately through GitHub's **[private vulnerability reporting](https://github.com/bertrandmbanwi/Jarvis/security/advisories/new)**. Don't open a public issue.
+Please report vulnerabilities privately through GitHub's **[private vulnerability reporting](https://github.com/YOUR-USERNAME/Friday/security/advisories/new)**. Don't open a public issue.
 
 Include what you found, how to reproduce it, and what an attacker could do with it. You'll get an acknowledgement within a few days, and credit in the release notes if you'd like it.
 

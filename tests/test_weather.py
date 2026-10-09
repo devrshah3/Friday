@@ -11,10 +11,10 @@ def test_profile_default_location_uses_city_and_state(monkeypatch):
     monkeypatch.setattr(
         profile,
         "_profile",
-        {"location_city": "Forney", "location_state": "Texas"},
+        {"location_city": "Springfield", "location_state": "Illinois"},
     )
 
-    assert profile.get_default_location() == "Forney, Texas"
+    assert profile.get_default_location() == "Springfield, Illinois"
 
 
 def test_profile_default_location_uses_saved_location_preference(monkeypatch):
@@ -22,13 +22,13 @@ def test_profile_default_location_uses_saved_location_preference(monkeypatch):
         profile,
         "_profile",
         {
-            "location_city": "Forney",
-            "location_state": "Texas",
-            "preferences": {"location": "Austin, Texas"},
+            "location_city": "Springfield",
+            "location_state": "Illinois",
+            "preferences": {"location": "Peoria, Illinois"},
         },
     )
 
-    assert profile.get_default_location() == "Austin, Texas"
+    assert profile.get_default_location() == "Peoria, Illinois"
 
 
 def test_weather_tool_location_is_optional():
@@ -41,14 +41,14 @@ def test_system_prompt_location_context_uses_profile(tmp_path, monkeypatch):
     profile_dir = tmp_path / "profile"
     profile_dir.mkdir()
     (profile_dir / "profile.json").write_text(
-        '{"location_city": "Forney", "location_state": "Texas"}',
+        '{"location_city": "Springfield", "location_state": "Illinois"}',
         encoding="utf-8",
     )
     monkeypatch.setattr(settings, "PROFILE_DIR", profile_dir)
 
     context = settings._get_default_location_context()
 
-    assert "Forney, Texas" in context
+    assert "Springfield, Illinois" in context
     assert "local weather requests" in context
 
 
@@ -57,13 +57,13 @@ async def test_weather_uses_profile_location_when_missing(monkeypatch):
     monkeypatch.setattr(
         profile,
         "_profile",
-        {"location_city": "Forney", "location_state": "Texas"},
+        {"location_city": "Springfield", "location_state": "Illinois"},
     )
     requested_locations = []
 
     async def fake_geocode(location: str):
         requested_locations.append(location)
-        return (32.7482, -96.4719, "Forney, Texas")
+        return (32.7482, -96.4719, "Springfield, Illinois")
 
     async def fake_fetch_weather(lat: float, lon: float, days: int = 2):
         return {
@@ -87,8 +87,8 @@ async def test_weather_uses_profile_location_when_missing(monkeypatch):
 
     result = await weather.get_weather("")
 
-    assert requested_locations == ["Forney, Texas"]
-    assert "Weather for Forney, Texas" in result
+    assert requested_locations == ["Springfield, Illinois"]
+    assert "Weather for Springfield, Illinois" in result
     assert "Now: Overcast, 73F" in result
 
 
@@ -97,7 +97,7 @@ async def test_weather_keeps_explicit_location(monkeypatch):
     monkeypatch.setattr(
         profile,
         "_profile",
-        {"location_city": "Forney", "location_state": "Texas"},
+        {"location_city": "Springfield", "location_state": "Illinois"},
     )
     requested_locations = []
 
@@ -122,7 +122,7 @@ async def test_weather_multi_day_forecast_lists_each_day_with_rain(monkeypatch):
     requested_days = []
 
     async def fake_geocode(location: str):
-        return (32.7482, -96.4719, "Forney, Texas")
+        return (32.7482, -96.4719, "Springfield, Illinois")
 
     async def fake_fetch_weather(lat: float, lon: float, days: int = 2):
         requested_days.append(days)

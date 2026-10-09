@@ -1,5 +1,12 @@
 # JARVIS Chrome Extension: Architecture & Design
 
+> **Status in Friday:** the page-action Chrome tools described below (`chrome_click`,
+> `chrome_type`, `chrome_fill_form`, `chrome_navigate`, `chrome_execute_js`) are
+> **disabled** in Friday: they are not registered, offered to the model or callable.
+> Only the read-only extension tools (`chrome_read_page`, `chrome_find_elements`,
+> `chrome_screenshot`, `chrome_get_tabs`, `chrome_scroll`, `chrome_extension_status`)
+> remain. This document describes the original design, not current behavior.
+
 ## Problem Statement
 
 JARVIS currently uses **Playwright with Claude Computer Use** for browser automation.

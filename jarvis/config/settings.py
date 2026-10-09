@@ -186,6 +186,12 @@ else:
         "You do not know your user's name. Do not assume a name, title, or pronouns; "
         'address them directly as "you" and use they/them if you must refer to them.'
     )
+# Public name for prompts built outside this module (coordinator, brain).
+USER_ADDRESS_RULE = _USER_ADDRESS_RULE
+
+# Default place for local weather and nearby queries, e.g. "Springfield, Illinois".
+# Empty by default; when empty no location is added to the prompt at all.
+USER_LOCATION = os.getenv("USER_LOCATION", "").strip()
 
 
 def _get_default_location_context() -> str:
@@ -202,9 +208,9 @@ def _get_default_location_context() -> str:
         profile_data.get("location", "") or
         (prefs.get("location", "") if isinstance(prefs, dict) else "")
     ).strip()
-    city = str(profile_data.get("location_city", "Forney") or "").strip()
-    state = str(profile_data.get("location_state", "Texas") or "").strip()
-    location = explicit_location or ", ".join(part for part in (city, state) if part)
+    city = str(profile_data.get("location_city", "") or "").strip()
+    state = str(profile_data.get("location_state", "") or "").strip()
+    location = explicit_location or ", ".join(part for part in (city, state) if part) or USER_LOCATION
 
     if not location:
         return ""

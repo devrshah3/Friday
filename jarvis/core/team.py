@@ -39,7 +39,7 @@ def _default_team() -> dict[str, Any]:
         "members": [
             {
                 "id": "local-owner",
-                "name": "Becs",
+                "name": settings.USER_NAME or "Owner",
                 "email": "",
                 "role": "owner",
                 "status": "active",

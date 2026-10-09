@@ -6,7 +6,7 @@
 <h3 align="center">The open-source FRIDAY for your Mac: talk to it, let it act, run it fully offline.</h3>
 
 <p align="center">
-  <a href="https://github.com/bertrandmbanwi/Jarvis/actions/workflows/ci.yml"><img src="https://github.com/bertrandmbanwi/Jarvis/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/YOUR-USERNAME/Friday/actions/workflows/ci.yml"><img src="https://github.com/YOUR-USERNAME/Friday/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <img src="https://img.shields.io/badge/models-OpenAI%20%7C%20Claude%20%7C%20Ollama%20%7C%20Apple-412991?style=flat-square" alt="Models: OpenAI, Claude, Ollama, Apple" />
   <img src="https://img.shields.io/badge/MCP-client%20%2B%20server-0A7BBB?style=flat-square" alt="MCP client and server" />
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Docker-999999?style=flat-square&logo=apple&logoColor=white" alt="macOS, Docker" />
@@ -22,7 +22,7 @@
 
 ---
 
-Say "Hey JARVIS" and it answers in a British voice. You can ask it to check your calendar, read the screen, fill a web form, write code, or brief you every morning. It works through 106 tools on your Mac: apps, files, Chrome, email, calendar, notes, the shell and the web. Anything risky waits for your approval.
+Say "Hey JARVIS" and it answers in a British voice. You can ask it to check your calendar, read the screen, manage files, or brief you every morning. It works through 99 tools on your Mac: apps, files, Chrome, email, calendar, notes and the web. Anything risky waits for your approval.
 
 | | |
 |---|---|
@@ -35,12 +35,12 @@ Say "Hey JARVIS" and it answers in a British voice. You can ask it to check your
 | 🔒 **Safe by default** | Human approval for high-risk actions, local-origin checks, PIN-protected remote access, and secrets in the macOS Keychain. |
 
 ```bash
-git clone https://github.com/bertrandmbanwi/Jarvis.git && cd Jarvis
+git clone https://github.com/YOUR-USERNAME/Friday.git && cd Friday
 ./setup.sh && echo 'OPENAI_API_KEY=sk-...' > .env     # or OFFLINE_MODE=true for local models only
 ./start.sh full
 ```
 
-## "Good evening, sir. I've prepared a summary of your system."
+## "Good evening. I've prepared a summary of your system."
 
 FRIDAY lives on your Mac. Talk to it, type in the chat, or let it operate your computer. It can see your screen, manage your files, browse the web, drive your Chrome browser, and remember your preferences across sessions.
 
@@ -68,7 +68,7 @@ A Manifest V3 Chrome extension that gives FRIDAY direct control over your browse
 A full Playwright-driven Chromium browser that FRIDAY controls autonomously for complex multi-step workflows. Fill forms, click buttons, log into sites, apply to jobs, download files. Persistent browser profile means sessions and cookies survive restarts. The Chrome extension handles lightweight tab operations; Playwright handles deep page automation.
 
 **macOS System Control**
-106 built-in tools across 17 categories (plus any MCP server you connect): open and close apps, adjust volume and brightness, manage files, execute shell commands, take screenshots with OCR, search the web, check weather, query free public-data APIs, read Gmail, manage Apple Notes, and delegate coding tasks to OpenAI Codex CLI or Claude Code.
+99 built-in tools (plus any MCP server you connect): open and close apps, adjust volume and brightness, manage files (moving a file to the Trash needs your PIN), take screenshots with OCR, search the web, check weather, query free public-data APIs, read Gmail, and manage Apple Notes. The shell, coding-agent and page-action Chrome tools are disabled in Friday.
 
 **Multi-Agent Coordination**
 Complex requests are automatically decomposed into subtasks by the planner agent, then executed in parallel or sequence by specialized executor agents. The QA agent verifies task quality, and the UI shows real-time plan progress with per-subtask status.
@@ -120,8 +120,8 @@ Built-in Cloudflare Tunnel support is available when you set `JARVIS_ENABLE_TUNN
 
 ```bash
 # Clone
-git clone https://github.com/bertrandmbanwi/Jarvis.git
-cd Jarvis
+git clone https://github.com/YOUR-USERNAME/Friday.git
+cd Friday
 
 # Setup (installs dependencies, pulls Ollama models)
 chmod +x setup.sh && ./setup.sh
@@ -191,7 +191,7 @@ For the full setup guide including environment variables, launch modes, mobile a
 | Local | Ollama (llama3.1:8b) | Free fallback, no API key needed |
 
 Prefer Claude? Set `LLM_PROVIDER=anthropic` and `ANTHROPIC_API_KEY`; the same tiers map to Claude Haiku 4.5, Sonnet 5 and Opus 5.
-All 106 tools are sent with OpenAI's native tool search, so the model loads only the tool schemas it needs.
+All 99 tools are sent with OpenAI's native tool search, so the model loads only the tool schemas it needs.
 
 Cost tracking is built in. The System dashboard shows per-session spend, token counts, and requests by tier.
 

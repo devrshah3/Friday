@@ -342,7 +342,7 @@ class JarvisBrain:
         if _is_jarvis_shutdown(user_input):
             logger.info("JARVIS shutdown requested by user.")
             self._shutdown_requested = True
-            yield "Shutting down FRIDAY. All systems offline. Goodbye, sir."
+            yield "Shutting down FRIDAY. All systems offline. Goodbye."
             return
 
         if settings.LOCAL_FIRST_ENABLED:
@@ -515,7 +515,7 @@ class JarvisBrain:
                 working_dir=str(settings.JARVIS_HOME),
             )
             if suggestion:
-                followups += f"\n\nBy the way, sir: {suggestion.text}"
+                followups += f"\n\nBy the way: {suggestion.text}"
                 logger.info("Follow-up suggestion appended: %s", suggestion.action_type)
         except Exception as e:
             logger.debug("Suggestion generation failed (non-critical): %s", e)
@@ -848,7 +848,7 @@ class JarvisBrain:
                 system_prompt_override=(
                     "You are FRIDAY, a personal AI assistant. Summarize the results "
                     "of a multi-step task you just completed. Be concise, warm, and "
-                    "conversational. Address the user as 'sir'."
+                    "conversational. " + settings.USER_ADDRESS_RULE
                 ),
             ))
         except Exception as e:

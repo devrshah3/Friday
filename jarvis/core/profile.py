@@ -12,14 +12,14 @@ PROFILE_FILE = settings.PROFILE_DIR / "profile.json"
 
 # Default profile template
 _DEFAULT_PROFILE: dict[str, Any] = {
-    "name": "Becs",
-    "preferred_address": "sir",
+    "name": settings.USER_NAME,
+    "preferred_address": "",
     "preferred_browser": "Google Chrome",
     "preferred_search_engine": "DuckDuckGo",
     "timezone": "",
-    "location_city": "Forney",
-    "location_state": "Texas",
-    "nearby_cities": ["Dallas", "Arlington", "Plano", "Frisco"],
+    "location_city": "",
+    "location_state": "",
+    "nearby_cities": [],
     "preferences": {},
     "shortcuts": {},
     "notes": [],
@@ -81,11 +81,7 @@ def get_default_location() -> str:
     if state:
         return state
 
-    default_city = str(_DEFAULT_PROFILE.get("location_city", "") or "").strip()
-    default_state = str(_DEFAULT_PROFILE.get("location_state", "") or "").strip()
-    if default_city and default_state:
-        return f"{default_city}, {default_state}"
-    return default_city or default_state
+    return settings.USER_LOCATION
 
 
 def update_profile(updates: dict[str, Any]) -> dict[str, Any]:

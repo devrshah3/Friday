@@ -14,7 +14,7 @@ def test_launch_agent_plist_is_rendered_without_hardcoded_user_paths(tmp_path):
     assert plist["WorkingDirectory"] == str(tmp_path)
     assert plist["EnvironmentVariables"]["JARVIS_HOME"] == str(tmp_path)
     plist_text = plist_bytes.decode("utf-8")
-    assert "/Users/bertrandmbanwi/Documents/Jarvis" not in plist_text
+    assert "/Users/someone/Documents/Jarvis" not in plist_text
     assert "__JARVIS_HOME__" not in plist_text
 
 

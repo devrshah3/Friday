@@ -214,7 +214,7 @@ class ProactiveEngine:
                                             location_info = f" at {p.replace('Location:', '').strip()}"
 
                                 msg = (
-                                    f"Heads up, sir. You have '{title}' starting "
+                                    f"Heads up. You have '{title}' starting "
                                     f"in about {int(minutes_until)} minutes{location_info}."
                                 )
                                 await self._deliver(Suggestion(
@@ -259,7 +259,7 @@ class ProactiveEngine:
             # Only notify if there are a meaningful number of unread emails
             # and we haven't recently notified about email
             if total_unread >= 3:
-                msg = f"Sir, you have {total_unread} unread emails waiting."
+                msg = f"You have {total_unread} unread emails waiting."
                 await self._deliver(Suggestion(
                     category=SuggestionCategory.EMAIL,
                     message=msg,
@@ -284,7 +284,7 @@ class ProactiveEngine:
             self._greeting_sent_today = f"{today}_morning"
             # Build a morning briefing
             briefing = await self._build_morning_briefing()
-            msg = f"Good morning, sir. {briefing}"
+            msg = f"Good morning. {briefing}"
             await self._deliver(Suggestion(
                 category=SuggestionCategory.GREETING,
                 message=msg,
@@ -296,7 +296,7 @@ class ProactiveEngine:
             if f"{today}_morning" == self._greeting_sent_today:
                 return  # Already greeted today
             self._greeting_sent_today = f"{today}_afternoon"
-            msg = "Good afternoon, sir. Let me know if you need anything."
+            msg = "Good afternoon. Let me know if you need anything."
             await self._deliver(Suggestion(
                 category=SuggestionCategory.GREETING,
                 message=msg,

@@ -6,4 +6,4 @@ In short: be welcoming and respectful, assume good intent, give and accept const
 
 ## Reporting
 
-If you experience or witness unacceptable behavior, contact the maintainer privately through GitHub ([@bertrandmbanwi](https://github.com/bertrandmbanwi)). Reports are handled confidentially. Maintainers may remove comments, commits, or other contributions that violate this code, and may temporarily or permanently ban contributors for repeated or severe violations, following the Contributor Covenant's enforcement guidelines.
+If you experience or witness unacceptable behavior, contact the maintainer privately through GitHub (see the repository owner's profile). Reports are handled confidentially. Maintainers may remove comments, commits, or other contributions that violate this code, and may temporarily or permanently ban contributors for repeated or severe violations, following the Contributor Covenant's enforcement guidelines.

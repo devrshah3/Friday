@@ -251,7 +251,7 @@ export default function DashboardView({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-0.5">
                         <span className="text-2xs font-medium text-jarvis-text-dim/50">
-                          {isUser ? "Becs" : "FRIDAY"}
+                          {isUser ? "You" : "FRIDAY"}
                         </span>
                         {!isUser && (msg.agentType || msg.tierUsed) && (
                           <AgentBadge agentType={msg.agentType} tierUsed={msg.tierUsed} />

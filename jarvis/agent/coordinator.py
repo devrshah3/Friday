@@ -27,6 +27,8 @@ import time
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from jarvis.config import settings
+
 logger = logging.getLogger("jarvis.agent.coordinator")
 
 
@@ -115,7 +117,7 @@ Do NOT combine facts from different sources without noting the sources.
 Do NOT use search_web and search_and_read for the same query; pick one.
 </mistakes_to_avoid>
 
-Address the user as 'sir'. Keep responses concise.
+Keep responses concise.
 """
 
 _CODER_PROMPT = """\
@@ -138,7 +140,7 @@ Do NOT write files without reading the target first to avoid overwriting.
 Do NOT hardcode secrets or credentials in generated code.
 </mistakes_to_avoid>
 
-Address the user as 'sir'. Keep responses concise.
+Keep responses concise.
 """
 
 _BROWSER_PROMPT = """\
@@ -168,7 +170,7 @@ Do NOT attempt to interact with elements without first reading the page to confi
 Do NOT fill forms without verifying the field selectors exist on the current page.
 </mistakes_to_avoid>
 
-Address the user as 'sir'. Keep responses concise.
+Keep responses concise.
 """
 
 _SYSTEM_PROMPT = """\
@@ -192,7 +194,7 @@ Do NOT delete files without explicit user confirmation.
 Do NOT adjust system settings without reporting the change back to the user.
 </mistakes_to_avoid>
 
-Address the user as 'sir'. Keep responses concise.
+Keep responses concise.
 """
 
 _COMMUNICATOR_PROMPT = """\
@@ -203,7 +205,7 @@ Manage email, calendar events, and notifications.
 </purpose>
 
 <instructions>
-For email: use Chrome/Gmail (Becs' preference). Use open_url_in_browser to open Gmail, chrome_read_page to scan the inbox. Do NOT use Apple Mail tools (get_unread_count); they time out.
+For email: use Chrome/Gmail (the user's preference). Use open_url_in_browser to open Gmail, chrome_read_page to scan the inbox. Do NOT use Apple Mail tools (get_unread_count); they time out.
 For calendar: use get_upcoming_events (AppleScript/Calendar.app). Do NOT open Google Calendar in Chrome.
 For sending email: always double-check the recipient address and email content. Never send without explicit user confirmation.
 For notifications: use send_notification for quick alerts.
@@ -216,7 +218,7 @@ Do NOT send email without confirming recipient and content with the user.
 Do NOT mix up calendar and email tools; they are separate systems.
 </mistakes_to_avoid>
 
-Address the user as 'sir'. Keep responses concise.
+Keep responses concise.
 """
 
 _ANALYST_PROMPT = """\
@@ -241,7 +243,7 @@ Do NOT use tools excessively; focus on reasoning over the data already collected
 Do NOT provide vague summaries; include specific numbers, names, and details.
 </mistakes_to_avoid>
 
-Address the user as 'sir'. Keep responses concise.
+Keep responses concise.
 """
 
 _GENERALIST_PROMPT = """\
@@ -257,7 +259,7 @@ Be efficient, accurate, and conversational.
 When multiple approaches exist, pick the fastest one that gets the job done.
 </instructions>
 
-Address the user as 'sir'. Keep responses concise.
+Keep responses concise.
 """
 
 
@@ -329,7 +331,7 @@ def _build_profiles() -> dict[AgentType, AgentProfile]:
         profiles[agent_type] = AgentProfile(
             agent_type=agent_type,
             display_name=name,
-            system_prompt=prompt,
+            system_prompt=f"{prompt.rstrip()}\n\n{settings.USER_ADDRESS_RULE}\n",
             tool_names=_AGENT_TOOLS[agent_type],
             description=f"Specialized {name.lower()} for JARVIS",
         )

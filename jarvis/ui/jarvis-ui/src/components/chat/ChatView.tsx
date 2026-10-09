@@ -124,7 +124,7 @@ export default function ChatView({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-2xs font-medium text-jarvis-text-dim/55">
-                          {isUser ? "Becs" : "FRIDAY"}
+                          {isUser ? "You" : "FRIDAY"}
                         </span>
                         {!isUser && (msg.agentType || msg.tierUsed) && (
                           <AgentBadge agentType={msg.agentType} tierUsed={msg.tierUsed} />

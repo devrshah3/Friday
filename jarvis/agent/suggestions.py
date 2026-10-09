@@ -150,7 +150,7 @@ def _check_missing_favicon(working_dir: str) -> Suggestion | None:
         logger.info("Web project missing favicon in %s", working_dir)
 
         return Suggestion(
-            text="That's done, sir. I noticed the project is missing a favicon. "
+            text="That's done. I noticed the project is missing a favicon. "
                  "Would you like me to generate one?",
             action_type="add_favicon",
             action_details={
@@ -202,7 +202,7 @@ def _check_missing_tests(working_dir: str) -> Suggestion | None:
         logger.info("Project missing tests in %s", working_dir)
 
         return Suggestion(
-            text="That's done, sir. I notice there are no test files yet. "
+            text="That's done. I notice there are no test files yet. "
                  "Should I set up a test framework?",
             action_type="add_tests",
             action_details={
@@ -237,7 +237,7 @@ def _check_missing_readme(working_dir: str) -> Suggestion | None:
         logger.info("Project missing README in %s", working_dir)
 
         return Suggestion(
-            text="That's done, sir. I noticed the project lacks a README. "
+            text="That's done. I noticed the project lacks a README. "
                  "Shall I write one?",
             action_type="add_readme",
             action_details={
@@ -271,7 +271,7 @@ def _check_quality_issues(qa_result: list[str] | None) -> Suggestion | None:
         logger.info("Quality improvement suggested from QA: %s", qa_result[0])
 
         return Suggestion(
-            text="That's done, sir. The QA noted some quality opportunities. "
+            text="That's done. The QA noted some quality opportunities. "
                  "Would you like me to refactor for better code clarity?",
             action_type="refactor",
             action_details={
@@ -303,7 +303,7 @@ def _check_missing_gitignore(working_dir: str) -> Suggestion | None:
         logger.info("Project missing .gitignore in %s", working_dir)
 
         return Suggestion(
-            text="That's done, sir. I notice the project is missing a .gitignore. "
+            text="That's done. I notice the project is missing a .gitignore. "
                  "Should I create one with common patterns?",
             action_type="add_gitignore",
             action_details={

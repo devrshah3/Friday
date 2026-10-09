@@ -397,8 +397,6 @@ class VoiceListener:
             if name:
                 hotwords.append(name)
 
-            hotwords.extend(["Dallas", "Texas"])
-
             seen = set()
             unique_hotwords = []
             for word in hotwords:

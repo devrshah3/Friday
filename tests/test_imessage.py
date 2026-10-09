@@ -39,7 +39,7 @@ def bridge(chat_db, monkeypatch):
 
     async def runner(text):
         asked.append(text)
-        return "On it, sir."
+        return "On it."
 
     async def sender(handle, text):
         sent.append((handle, text))
@@ -74,14 +74,14 @@ async def test_allowed_handle_gets_a_marked_reply(bridge):
     b, sent, asked = bridge
     await b.handle_message("+1 (555) 123-4567", "what's the weather?")
     assert asked == ["what's the weather?"]
-    assert sent == [("+1 (555) 123-4567", imessage.REPLY_MARKER + "On it, sir.")]
+    assert sent == [("+1 (555) 123-4567", imessage.REPLY_MARKER + "On it.")]
 
 
 @pytest.mark.asyncio
 async def test_strangers_and_own_replies_are_ignored(bridge):
     b, sent, asked = bridge
     await b.handle_message("stranger@example.com", "run rm -rf /")
-    await b.handle_message("+15551234567", imessage.REPLY_MARKER + "On it, sir.")  # JARVIS's own reply echoed back
+    await b.handle_message("+15551234567", imessage.REPLY_MARKER + "On it.")  # JARVIS's own reply echoed back
     assert asked == [] and sent == []
 
 

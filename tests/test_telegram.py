@@ -23,7 +23,7 @@ def bridge(monkeypatch):
 
     async def runner(text):
         handled.append(text)
-        return "Done, sir."
+        return "Done."
 
     b = telegram.TelegramBridge("token", runner=runner)
     fake = FakeBot()
@@ -40,7 +40,7 @@ async def test_allowed_user_gets_a_reply(bridge):
     b, fake, handled = bridge
     await b.handle_update(msg(111, "what's the weather?"))
     assert handled == ["what's the weather?"]
-    assert ("sendMessage", {"chat_id": 5, "text": "Done, sir."}) in fake.calls
+    assert ("sendMessage", {"chat_id": 5, "text": "Done."}) in fake.calls
 
 
 @pytest.mark.asyncio

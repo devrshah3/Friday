@@ -328,7 +328,7 @@ async def run_full():
                 logger.error("Async task failed: %s", e)
                 listener.set_speaking(True)
                 await _speak_response(
-                    f"I ran into an issue processing that request, sir. {str(e)[:100]}"
+                    f"I ran into an issue processing that request. {str(e)[:100]}"
                 )
 
         async def on_speech(text: str):
@@ -341,10 +341,10 @@ async def run_full():
                 logger.info("Async execution: acknowledging and processing in background.")
                 await broadcast_overlay_state("speaking", user_text=text)
                 ack_phrases = [
-                    "On it, sir.",
+                    "On it.",
                     "Working on that now.",
                     "Let me handle that.",
-                    "I'll get right on it, sir.",
+                    "I'll get right on it.",
                 ]
                 import secrets
                 ack = secrets.choice(ack_phrases)

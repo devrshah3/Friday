@@ -107,17 +107,17 @@ async def test_local_router_shortcuts_simple_weather_with_location(monkeypatch):
 
     monkeypatch.setattr(weather, "get_weather", fake_weather)
 
-    result = await route_local("What's the weather in Forney Texas?")
+    result = await route_local("What's the weather in Springfield Illinois?")
 
     assert result is not None
-    assert result.response == "weather called for forney texas"
+    assert result.response == "weather called for springfield illinois"
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "text",
     [
-        "can you check the weather schedule for this weekend in Forney Texas tell me how much rain we are expecting",
+        "can you check the weather schedule for this weekend in Springfield Illinois tell me how much rain we are expecting",
         "What's the forecast for Saturday?",
         "weather for the next five days in Dallas",
     ],

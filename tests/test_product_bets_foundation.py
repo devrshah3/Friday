@@ -420,7 +420,7 @@ def test_product_state_imports_legacy_json_to_sqlite(product_bet_files):
         "members": [
             {
                 "id": "local-owner",
-                "name": "Becs",
+                "name": "Alex",
                 "email": "",
                 "role": "owner",
                 "status": "active",
@@ -940,7 +940,7 @@ def test_calendar_policy_blocks_auto_schedule_until_connected(product_bet_files)
 
     connection = calendar_accounts.upsert_connection(
         provider="google",
-        account_label="Becs",
+        account_label="Alex",
         enabled=True,
         status="connected",
     )
